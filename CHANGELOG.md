@@ -61,6 +61,7 @@ Clipboard History images open in the Screenshot Editor, copied color values show
 - Settings search keeps focus while you type, instead of accepting only the first letter and beeping for the rest. Thanks to @overstock718.
 - Dynamic Island stays in place when you swipe between desktops or into a full-screen app, instead of sliding away with the desktop. Thanks to Pinea for the feedback.
 - Dynamic Island's Liquid Glass darkens as the island closes, so it no longer changes at the last moment when the island returns to rest. Thanks to Pinea for the feedback.
+- Dynamic Island's Liquid Glass stays dark while the island opens or closes without its page, instead of flashing an empty see-through shell over the windows beneath it, and opens up as the page fades in.
 - Dynamic Island and the brightness overlay answer the brightness keys of external keyboards that send them as ordinary keys, not only when brightness follows the pointer. Thanks to Pinea for the feedback.
 - With Show brightness when adjusting off, the brightness keys show the macOS indicator while Dynamic Island is hidden until hover or in full screen, instead of Vorssaint's own overlay.
 - Extra Brightness stays on while you use one of Vorssaint's menus, sliders or alerts, instead of dropping out after about a second. Thanks to Brain for the feedback.
