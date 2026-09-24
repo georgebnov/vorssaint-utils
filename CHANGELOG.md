@@ -58,6 +58,7 @@ Clipboard History images open in the Screenshot Editor, copied color values show
 - The App shortcuts table sorts by any column header, and a second click reverses the order. Rows without an alias or a shortcut stay at the bottom. Thanks to @zeuslcf.
 
 ### Fixed
+- Dynamic Island finds lyrics for singles and EPs from Apple Music, which adds " - Single" or " - EP" to the album name, instead of saying no lyrics match the recording.
 - Settings search keeps focus while you type, instead of accepting only the first letter and beeping for the rest. Thanks to @overstock718.
 - Dynamic Island stays in place when you swipe between desktops or into a full-screen app, instead of sliding away with the desktop. Thanks to Pinea for the feedback.
 - Dynamic Island's Liquid Glass darkens as the island closes, so it no longer changes at the last moment when the island returns to rest. Thanks to Pinea for the feedback.
