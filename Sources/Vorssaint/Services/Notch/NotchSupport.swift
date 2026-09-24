@@ -1356,6 +1356,10 @@ struct NotchSessionState {
 /// Reserve enough backing space for both ends. The visible silhouette moves
 /// inside it; the native window only shrinks after the transition finishes.
 enum NotchMotion {
+    /// Departing content has faded out by 0.16 s; the view then swaps it for
+    /// the next content, which fades in once the swap is on screen.
+    static let departureHidden: TimeInterval = 0.2
+
     static func duration(from: CGSize, to: CGSize) -> TimeInterval {
         let grows = to.height > from.height || (to.height == from.height && to.width > from.width)
         return grows ? 0.34 : 0.26

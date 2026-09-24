@@ -463,7 +463,7 @@ def main():
               "    private var holdsNotification:", "    private func holdNotification(",
               "    private func syncNoticeWithPreferences(",
               "    private func releaseNotification(", "    private func scheduleNoticeDismissal(",
-              "    private func dismissNotice(", "    private var noticeCanPresent:",
+              "    private func dismissNotice(", "    private func endDeparture(", "    private var noticeCanPresent:",
               "    private func syncHiddenHoverMonitoring(", "    private func removeHiddenHoverMonitors("])
           .replace("NotchSupport.routes(notice.event)", "routesNotices")
           + "}\n}\n")

@@ -76,6 +76,8 @@ final class NotchService: ObservableObject {
     @Published private(set) var modules: [NotchModule] = []
     @Published private(set) var notice: NotchNotice?
     @Published private(set) var noticeExpanded = false
+    /// A compact notice stays drawn while the island closes around it.
+    @Published private(set) var departingNotice: NotchNotice?
     @Published private(set) var captureActions: AnyView?
     @Published private(set) var captureContent: AnyView?
     /// Bumped when Command-W asks the Scratchpad page to close its selected
@@ -100,6 +102,7 @@ final class NotchService: ObservableObject {
     private var hiddenHoverMonitors: [Any] = []
     private var hoverWork: DispatchWorkItem?
     private var noticeWork: DispatchWorkItem?
+    private var departureWork: DispatchWorkItem?
     private var trackWork: DispatchWorkItem?
     private var powerSource: CFRunLoopSource?
     private var powerSampler: PowerSampler?
@@ -1255,8 +1258,28 @@ final class NotchService: ObservableObject {
 
     private func dismissNotice() {
         noticeWork?.cancel(); noticeWork = nil
-        let transition: NotchContentTransition = notice != nil && noticeCanPresent ? .dismiss : .none
-        mutatePresentation(transitionContent: transition) { notice = nil; noticeExpanded = false }
+        endDeparture()
+        let transition: NotchContentTransition = notice == nil || !noticeCanPresent ? .none
+            : noticeExpanded ? .dismiss : .depart
+        let departing = transition == .depart ? notice : nil
+        mutatePresentation(transitionContent: transition) {
+            departingNotice = departing
+            notice = nil
+            noticeExpanded = false
+        }
+        guard departingNotice != nil else { return }
+        // Without motion the host hides the content at once; so does the view.
+        guard windowHost?.departsContent == true else { endDeparture(); return }
+        let work = DispatchWorkItem { [weak self] in self?.endDeparture() }
+        departureWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + NotchMotion.departureHidden, execute: work)
+    }
+
+    private func endDeparture() {
+        departureWork?.cancel(); departureWork = nil
+        guard departingNotice != nil else { return }
+        departingNotice = nil
+        windowHost?.finishDeparture()
     }
 
     private var noticeCanPresent: Bool {
@@ -1328,14 +1351,14 @@ final class NotchService: ObservableObject {
         }
         syncHiddenHoverMonitoring()
         if hiddenUntilHover || (captureControls != nil && captureSelectionInProgress) {
-            if hiddenUntilHover { windowHost?.hide(animated: animated) }
+            if hiddenUntilHover { windowHost?.hide(animated: animated, transitionContent: transitionContent) }
             else { panel?.orderOut(nil) }
             removeScreenEdgeClickMonitors()
             return
         }
         let open = expanded || peeking || notice != nil || dragPlaceholder || captureControls != nil
         guard open || geometry.isNotched || geometry.compactSideRoom != nil else {
-            windowHost?.hide(animated: animated)
+            windowHost?.hide(animated: animated, transitionContent: transitionContent)
             removeScreenEdgeClickMonitors()
             return
         }

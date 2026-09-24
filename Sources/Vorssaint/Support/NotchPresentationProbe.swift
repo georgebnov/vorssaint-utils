@@ -464,6 +464,26 @@ enum NotchPresentationProbe {
             failures.append("settled content remained hidden")
         }
         if completedActions != 1 { failures.append("transition completion did not run exactly once") }
+        // A leaving notice stays drawn while the shape closes around it, and
+        // is gone before the resting content returns.
+        host.present(size: geometry.collapsed, geometry: geometry, animated: true, transitionContent: .depart)
+        if !reduceMotion, !host.departsContent { failures.append("departing notice has no departure transition") }
+        advance(0.04)
+        if !reduceMotion, host.contentProbeOpacity < 0.3 {
+            failures.append("departing notice vanished before the shape closed around it")
+        }
+        advance(NotchMotion.departureHidden - 0.04)
+        if !reduceMotion, host.contentProbeOpacity > 0.01 {
+            failures.append("departing notice was still visible when the view swapped it out")
+        }
+        advance(0.3)
+        if !reduceMotion, host.contentProbeOpacity > 0.01 {
+            failures.append("departing notice returned before the view swapped it out")
+        }
+        host.finishDeparture()
+        advance(0.52)
+        if host.contentProbeOpacity != 1 { failures.append("content stayed hidden after a notice departed") }
+        host.present(size: geometry.notice, geometry: geometry, animated: false)
         // A compact download can exceed 64pt. Its material is a presentation
         // decision, independent of that height and of the animation envelope.
         let crowded = NotchGeometry(screen: screen.frame, safeAreaTop: 38, cameraWidth: 210,

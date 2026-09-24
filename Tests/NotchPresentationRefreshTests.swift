@@ -47,7 +47,7 @@ enum NotchPresentationRefreshContract {
     final class Host {
         let panel = Panel()
         var hideAnimations: [Bool] = []
-        func hide(animated: Bool) {
+        func hide(animated: Bool, transitionContent: NotchContentTransition = .none) {
             hideAnimations.append(animated)
             panel.orderOut(nil)
         }

@@ -90,7 +90,7 @@ struct NotchView: View {
                 }
                 .padding(.horizontal, 18)
                 .padding(.top, service.geometry.safeContentTop)
-        } else if let notice = service.notice {
+        } else if let notice = service.notice ?? (service.peeking ? nil : service.departingNotice) {
             if service.noticeExpanded, let content = notice.notification {
                 NotchNotificationPreviewView(notice: notice, content: content, service: service)
                     .padding(.horizontal, NotchLayout.horizontalInset)

@@ -13,7 +13,9 @@ struct NotchFileDropActions {
     var update: ((CGPoint) -> Bool)? = nil
 }
 
-enum NotchContentTransition { case none, reveal, dismiss, replace }
+/// `depart` keeps the leaving content on screen while the shape closes
+/// around it, fading out before the next content takes its place.
+enum NotchContentTransition { case none, reveal, dismiss, depart, replace }
 
 /// The window reserves the transition's bounds once. Core Animation moves
 /// the silhouette independently of SwiftUI layout and the application run loop.
@@ -72,15 +74,22 @@ final class NotchWindowHost: NSObject, CAAnimationDelegate {
         overlaySpace?.add(panel)
     }
 
+    /// Whether leaving content is fading out with the shape rather than hidden at once.
+    var departsContent: Bool { canvas.departsContent }
+
+    /// The view has swapped out the departed content; the next one fades in.
+    func finishDeparture() { canvas.finishDeparture() }
+
     /// Visible, or ordered out for the few milliseconds of a concealed frame change.
     private var isPresented: Bool { panel.isVisible || concealedForFrameChange }
 
-    func hide(animated: Bool) {
+    func hide(animated: Bool, transitionContent: NotchContentTransition = .dismiss) {
         guard isPresented else { return }
         let animate = animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         guard !hidesWhenSettled || !animate else { return }
         present(size: CGSize(width: currentGeometry.collapsed.width, height: 0), geometry: currentGeometry,
-                animated: animate, transitionContent: .dismiss, hideWhenSettled: true)
+                animated: animate, transitionContent: transitionContent == .depart ? .depart : .dismiss,
+                hideWhenSettled: true)
     }
 
     func present(size: CGSize, geometry: NotchGeometry, animated: Bool, transitionContent: NotchContentTransition = .none,
@@ -798,6 +807,10 @@ private final class NotchCanvas: NSView {
     var contentTopInWindow: CGPoint { host.convert(.zero, to: nil) }
 
     private static let motionKey = "notch.resize"
+    private static let departureKey = "notchDeparture"
+    var departsContent: Bool {
+        contentVisibility.animation(forKey: "notch.opacity")?.value(forKey: Self.departureKey) as? Bool == true
+    }
     var targetPath: CGPath? { silhouette.path }
     var visiblePath: CGPath? { silhouette.presentation()?.path ?? silhouette.path }
 
@@ -895,9 +908,37 @@ private final class NotchCanvas: NSView {
             animation.duration = shapeSnaps ? 0.2 : 0.40
             animation.calculationMode = .linear
             animation.timingFunctions = [CAMediaTimingFunction(name: .linear), CAMediaTimingFunction(name: .easeOut)]
+            if kind == .depart {
+                // Departing content shrinks with the shape and stays hidden
+                // until the view has swapped it out, however late that is.
+                animation.values = [currentOpacity, 0]
+                animation.keyTimes = [0, 1]
+                animation.duration = 0.16
+                animation.timingFunctions = [CAMediaTimingFunction(name: .easeIn)]
+                animation.fillMode = .forwards
+                animation.isRemovedOnCompletion = false
+                animation.setValue(true, forKey: Self.departureKey)
+            }
             contentVisibility.opacity = 1
             contentVisibility.add(animation, forKey: "notch.opacity")
         }
+        CATransaction.commit()
+    }
+
+    func finishDeparture() {
+        guard departsContent else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        let animation = CABasicAnimation(keyPath: "opacity")
+        animation.fromValue = 0
+        animation.toValue = 1
+        // The swapped view reaches the screen with a later update.
+        animation.beginTime = CACurrentMediaTime() + 0.06
+        animation.fillMode = .backwards
+        animation.duration = 0.14
+        animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        contentVisibility.removeAnimation(forKey: "notch.opacity")
+        contentVisibility.add(animation, forKey: "notch.opacity")
         CATransaction.commit()
     }
 
