@@ -111,6 +111,7 @@ Settings lists tools on shared pages by name in the sidebar, and keyboard bright
 - The Dynamic Island page in Settings fits the narrowest window: its tabs become a menu when they do not fit beside the open button, and the Dynamic Island or Separate window choice, Show limits as and the AI agents menus move under their title instead of cutting the page off or squeezing the title letter by letter.
 - The Cleaner and the Uninstaller can stop a running scan with a Cancel button or the panel's X, instead of scanning on in the background and showing Scanning again when reopened. Thanks to @KumarSashank.
 - Window Layout shortcuts and timers such as the recorder's keep running while the Disk Image Installer's install prompt or result alert is open, instead of waiting until it closes. Thanks to @shlok1806.
+- The AI section of Dynamic Island uses about a quarter of the CPU it did to refresh its totals while Claude Code or Codex is working, which it does every few seconds. The totals are the same. Thanks to Azelance for the feedback.
 
 ## [3.4.0-beta.4] - 2026-09-23
 
