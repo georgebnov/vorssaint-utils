@@ -17,8 +17,8 @@
 "NSDownloadsFolderUsageDescription" = "Vorssaint проверяет локальные метаданные в Загрузках, чтобы просматривать, упорядочивать или перемещать в Корзину только выбранные вами подтверждённые файлы WhatsApp.";
 
 /* macOS user-selected organizer destination prompts. */
-"NSDesktopFolderUsageDescription" = "Vorssaint упорядочивает подтверждённые загрузки WhatsApp в папке назначения, которую вы явно выбираете.";
-"NSDocumentsFolderUsageDescription" = "Vorssaint упорядочивает подтверждённые загрузки WhatsApp в папке назначения, которую вы явно выбираете.";
+"NSDesktopFolderUsageDescription" = "Vorssaint упорядочивает подтверждённые загрузки WhatsApp в папке назначения, которую вы явно выбираете. Очистка также ищет забытые снимки экрана, если вы сохраняете их сюда.";
+"NSDocumentsFolderUsageDescription" = "Vorssaint упорядочивает подтверждённые загрузки WhatsApp в папке назначения, которую вы явно выбираете. Очистка также ищет забытые снимки экрана, если вы сохраняете их сюда.";
 "NSNetworkVolumesUsageDescription" = "Vorssaint упорядочивает подтверждённые загрузки WhatsApp в папке назначения, которую вы явно выбираете.";
 "NSRemovableVolumesUsageDescription" = "Vorssaint упорядочивает подтверждённые загрузки WhatsApp в папке назначения, которую вы явно выбираете.";
 "NSCalendarsFullAccessUsageDescription" = "Показывает предстоящие встречи в верхней части экрана. События календаря остаются на этом Mac.";

@@ -69,9 +69,9 @@
 	<key>NSDownloadsFolderUsageDescription</key>
 	<string>Vorssaint checks local metadata in Downloads to review, organize or trash only confirmed WhatsApp files you choose.</string>
 	<key>NSDesktopFolderUsageDescription</key>
-	<string>Vorssaint organizes confirmed WhatsApp downloads in a destination folder you explicitly choose.</string>
+	<string>Vorssaint organizes confirmed WhatsApp downloads in a destination folder you explicitly choose. The Cleaner also looks for forgotten screenshots when you save screenshots here.</string>
 	<key>NSDocumentsFolderUsageDescription</key>
-	<string>Vorssaint organizes confirmed WhatsApp downloads in a destination folder you explicitly choose.</string>
+	<string>Vorssaint organizes confirmed WhatsApp downloads in a destination folder you explicitly choose. The Cleaner also looks for forgotten screenshots when you save screenshots here.</string>
 	<key>NSNetworkVolumesUsageDescription</key>
 	<string>Vorssaint organizes confirmed WhatsApp downloads in a destination folder you explicitly choose.</string>
 	<key>NSRemovableVolumesUsageDescription</key>

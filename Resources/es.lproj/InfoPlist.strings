@@ -17,8 +17,8 @@
 "NSDownloadsFolderUsageDescription" = "Vorssaint consulta metadatos locales en Descargas para revisar, organizar o enviar a la Papelera solo los archivos confirmados de WhatsApp que tú elijas.";
 
 /* macOS user-selected organizer destination prompts. */
-"NSDesktopFolderUsageDescription" = "Vorssaint organiza las descargas confirmadas de WhatsApp en una carpeta de destino que tú eliges expresamente.";
-"NSDocumentsFolderUsageDescription" = "Vorssaint organiza las descargas confirmadas de WhatsApp en una carpeta de destino que tú eliges expresamente.";
+"NSDesktopFolderUsageDescription" = "Vorssaint organiza las descargas confirmadas de WhatsApp en una carpeta de destino que tú eliges expresamente. Limpieza también busca capturas olvidadas si guardas tus capturas aquí.";
+"NSDocumentsFolderUsageDescription" = "Vorssaint organiza las descargas confirmadas de WhatsApp en una carpeta de destino que tú eliges expresamente. Limpieza también busca capturas olvidadas si guardas tus capturas aquí.";
 "NSNetworkVolumesUsageDescription" = "Vorssaint organiza las descargas confirmadas de WhatsApp en una carpeta de destino que tú eliges expresamente.";
 "NSRemovableVolumesUsageDescription" = "Vorssaint organiza las descargas confirmadas de WhatsApp en una carpeta de destino que tú eliges expresamente.";
 "NSCalendarsFullAccessUsageDescription" = "Muestra tus próximas citas en la parte superior de la pantalla. Los eventos del calendario se quedan en este Mac.";
