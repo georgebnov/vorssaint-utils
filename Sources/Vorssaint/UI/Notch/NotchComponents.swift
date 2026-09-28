@@ -269,7 +269,15 @@ final class NotchBackdropPresentation: ObservableObject {
     @Published var usesGlass = false
     @Published private(set) var fade = NotchGlassFade.open
 
-    var openness: Double { Double(fade.openness(atHeight: contour.boundingRect.height)) }
+    /// Measured from the top edge, as the fade is planned: a floating
+    /// capsule's contour starts below it.
+    var openness: Double { Double(fade.openness(atHeight: contourBottom)) }
+    fileprivate var contourBottom: CGFloat { contour.boundingRect.isNull ? 0 : contour.boundingRect.maxY }
+
+    /// How much of the resting black still lies beneath the glass. It lets go
+    /// as the glass opens and is gone once the glass is fully open, so an
+    /// opening never settles over a black that then vanishes at once.
+    var restingBlack: Double { 1 - openness }
 
     /// Plans a resize from `start` to `end` from what is on screen now.
     func planFade(from start: CGFloat, to end: CGFloat, endsInGlass: Bool) {
@@ -296,7 +304,7 @@ struct NotchBackdropShape: Shape {
 
 struct NotchWindowBackground: View {
     @ObservedObject var presentation: NotchBackdropPresentation
-    @AppStorage(DefaultsKey.liquidGlassEnabled) private var glass = false
+    @AppStorage(DefaultsKey.notchLiquidGlassEnabled) private var glass = false
 
     var body: some View {
         NotchSurfaceBackground(presentation: presentation, glass: glass)
@@ -310,40 +318,54 @@ struct NotchSurfaceBackground: View {
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
-    var body: some View {
-        Group {
+    private var offersGlass: Bool {
 #if compiler(>=6.2)
-            if #available(macOS 26, *), glass, presentation.usesGlass, !reduceTransparency {
+        if #available(macOS 26, *) { return glass && !reduceTransparency }
+#endif
+        return false
+    }
+
+    private var showsGlass: Bool { offersGlass && presentation.usesGlass }
+
+    var body: some View {
+        ZStack {
+            // The black the island rests in stays beneath the glass until
+            // the glass has opened, and the glass exists only while that
+            // black lets it show, so the window's resizes at either end of a
+            // transition happen in plain black.
+            Color.black.opacity(showsGlass ? presentation.restingBlack : 1)
+#if compiler(>=6.2)
+            if #available(macOS 26, *), showsGlass, presentation.restingBlack < 1 {
                 let shape = NotchBackdropShape(contour: presentation.contour)
                 Color.clear
                     .glassEffect(.clear, in: shape)
                     .environment(\.appearsActive, true)
                     .materialActiveAppearance(.active)
                     .overlay {
-                        // Near a black strip the lip closes up, so the last
-                        // frames of a collapse already match the resting island.
-                        let openness = presentation.openness
-                        let stops = (0...64).map { index in
-                            let t = Double(index) / 64
-                            return Gradient.Stop(
-                                color: .black.opacity(1 - openness * (contrast == .increased ? 0.10 : 0.45) * pow(t, 2.5)),
-                                location: t)
-                        }
-                        LinearGradient(stops: stops, startPoint: .top, endPoint: .bottom)
-                            .frame(height: presentation.contour.boundingRect.height)
+                        LinearGradient(stops: Self.shade(openness: presentation.openness, contrast: contrast),
+                                       startPoint: .top, endPoint: .bottom)
+                            .frame(height: presentation.contourBottom)
                             .frame(maxHeight: .infinity, alignment: .top)
                             .mask(shape)
                     }
-            } else {
-                Color.black
             }
-#else
-            Color.black
 #endif
         }
         .environment(\.colorScheme, .dark)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+
+    /// The dimming over the glass, from the top of the island to its lip. Near
+    /// a black strip the lip closes up, so the last frames of a collapse
+    /// already match the resting island.
+    static func shade(openness: Double, contrast: ColorSchemeContrast) -> [Gradient.Stop] {
+        (0...64).map { index in
+            let t = Double(index) / 64
+            return Gradient.Stop(
+                color: .black.opacity(1 - openness * (contrast == .increased ? 0.10 : 0.45) * pow(t, 2.5)),
+                location: t)
+        }
     }
 }
 
@@ -353,7 +375,7 @@ struct NotchControlSurface: ViewModifier {
     let cornerRadius: CGFloat
     var selected = false
     var interactive = true
-    @AppStorage(DefaultsKey.liquidGlassEnabled) private var glass = false
+    @AppStorage(DefaultsKey.notchLiquidGlassEnabled) private var glass = false
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.notchGlassSurface) private var glassSurface

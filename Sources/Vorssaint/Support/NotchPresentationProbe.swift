@@ -17,13 +17,32 @@ enum NotchPresentationProbe {
             .environment(\.colorScheme, .dark))
     }
 
+    /// The floating buttons take the same glass choice as `surface`. The suite
+    /// is only registered, so nothing is written to disk.
+    private static let glassDefaults: UserDefaults = {
+        let defaults = UserDefaults(suiteName: "com.vorssaint.tests.notch-presentation")!
+        defaults.register(defaults: [DefaultsKey.notchLiquidGlassEnabled: CommandLine.arguments.contains("--glass")])
+        return defaults
+    }()
+
+    /// Reduce Transparency and Increase Contrast keep the buttons solid.
+    private static var quickAccessGlass: Bool {
+        guard #available(macOS 26, *) else { return false }
+        let workspace = NSWorkspace.shared
+        return CommandLine.arguments.contains("--glass") && !workspace.accessibilityDisplayShouldReduceTransparency
+            && !workspace.accessibilityDisplayShouldIncreaseContrast
+    }
+
+    private static func quickAccess(_ motion: NotchQuickAccessMotion, _ backdrop: NotchBackdropPresentation) -> AnyView {
+        AnyView(NotchQuickAccessView(service: .shared, motion: motion, backdrop: backdrop).defaultAppStorage(glassDefaults))
+    }
+
     /// The glass gradient must follow the visible lip, not the larger reserved
     /// canvas, and content transitions must never cover or fade the backdrop.
     private static func checkBackdrop(_ host: NotchWindowHost, failures: inout [String]) {
         host.synchronizeBackdropProbe()
         let background = host.backdropProbeFrame
-        if let silhouette = host.silhouetteProbePath,
-           host.backdropProbePath != silhouette {
+        if !host.backdropProbeFollowsSilhouette {
             failures.append("backdrop contour differs from the animated silhouette")
         }
         let visible = host.visibleFrame.size
@@ -43,7 +62,7 @@ enum NotchPresentationProbe {
             let geometry = NotchGeometry(screen: screen.frame, safeAreaTop: safeArea,
                                          cameraWidth: safeArea > 0 ? 210 : 0)
             let host = NotchWindowHost(content: AnyView(Color.clear), geometry: geometry, size: geometry.collapsed, background: surface,
-                                      quickAccess: { AnyView(NotchQuickAccessView(service: .shared, motion: $0)) })
+                                      quickAccess: quickAccess)
             host.panel.alphaValue = 0
             host.panel.ignoresMouseEvents = true
             func advance(_ seconds: TimeInterval) {
@@ -134,6 +153,9 @@ enum NotchPresentationProbe {
             host.present(size: geometry.expanded, geometry: geometry, animated: true,
                          transitionContent: .reveal, usesGlass: true)
             let fadeStarted = host.contentProbeAnimating
+            if host.contentProbeBlurred || host.contentProbeGrowing {
+                failures.append("a page opened at once blurred or grew as if the island moved")
+            }
             host.panel.orderFrontRegardless()
             advance(0.02)
             if !fadeStarted || host.contentProbeOpacity > 0.01 {
@@ -223,7 +245,7 @@ enum NotchPresentationProbe {
         let geometry = NotchGeometry(screen: screen.frame, safeAreaTop: screen.safeAreaInsets.top,
                                      cameraWidth: screen.safeAreaInsets.top > 0 ? 210 : 0)
         let host = NotchWindowHost(content: AnyView(Color.clear), geometry: geometry, size: geometry.collapsed, background: surface,
-                                  quickAccess: { AnyView(NotchQuickAccessView(service: .shared, motion: $0)) })
+                                  quickAccess: quickAccess)
         let restingAlpha: CGFloat = 0.01
         host.panel.alphaValue = restingAlpha
         host.panel.ignoresMouseEvents = true
@@ -328,6 +350,45 @@ enum NotchPresentationProbe {
         exit(failures.isEmpty ? 0 : 1)
     }
 
+    /// Asks the window server, not AppKit, where a click would land: a pixel
+    /// it does not count as the window's own passes the click to the app
+    /// behind even when the view would take it. Needs a visible window, so it
+    /// is a separate, explicitly requested check.
+    private static func runQuickAccessClicksAndExit() -> Never {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.prohibited)
+        guard let screen = NSScreen.main else { print("QUICK ACCESS CLICKS FAILED: no display"); exit(1) }
+        let geometry = NotchGeometry(screen: screen.frame, safeAreaTop: screen.safeAreaInsets.top,
+                                     cameraWidth: screen.safeAreaInsets.top > 0 ? 210 : 0)
+        let host = NotchWindowHost(content: AnyView(Color.clear), geometry: geometry, size: geometry.collapsed, background: surface,
+                                   quickAccess: quickAccess)
+        host.panel.orderFrontRegardless()
+        var failures: [String] = []
+        func lands(_ point: CGPoint) -> Bool {
+            NSWindow.windowNumber(at: point, belowWindowWithWindowNumber: 0) == host.panel.windowNumber
+        }
+        for side in NotchQuickAccessSide.allCases {
+            let configuration = NotchQuickAccessConfiguration(side: side, actions: [.explore, .settings, .module(.timer)])
+            host.present(size: geometry.expanded, geometry: geometry, animated: false, quickAccess: configuration, usesGlass: true)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+            for point in host.quickAccessProbeCenters {
+                let missed = (0..<16).first { step in
+                    let angle = CGFloat(step) * .pi / 8
+                    let radius = NotchQuickAccessLayout.diameter / 2 - 2
+                    return !lands(CGPoint(x: point.x + cos(angle) * radius, y: point.y + sin(angle) * radius))
+                }
+                if let missed { failures.append("a \(side) control passed a click near its rim at \(missed * 45 / 2)° to the app behind") }
+                let gap = side == .bottom ? CGPoint(x: point.x, y: point.y + 28)
+                    : CGPoint(x: point.x + (side == .left ? 28 : -28), y: point.y)
+                if lands(gap) { failures.append("the transparent gap beside a \(side) control kept a click from the app behind") }
+            }
+        }
+        host.close()
+        print(failures.isEmpty ? "QUICK ACCESS CLICKS OK glass=\(quickAccessGlass)"
+              : "QUICK ACCESS CLICKS FAILED glass=\(quickAccessGlass)\n" + failures.joined(separator: "\n"))
+        exit(failures.isEmpty ? 0 : 1)
+    }
+
     static func runAndExit() -> Never {
         if CommandLine.arguments.contains("--media-layout") { NotchMediaPresentationProbe.runAndExit() }
         if CommandLine.arguments.contains("--mission-control") { runMissionControlAndExit() }
@@ -336,6 +397,7 @@ enum NotchPresentationProbe {
             previewNoticeAndExit(title: CommandLine.arguments[index + 1])
         }
         if CommandLine.arguments.contains("--profile-only") { runProfileAndExit() }
+        if CommandLine.arguments.contains("--quick-access-clicks") { runQuickAccessClicksAndExit() }
         let app = NSApplication.shared
         app.setActivationPolicy(.prohibited)
         guard let screen = NSScreen.main else { print("NOTCH PROBE FAILED: no display"); exit(1) }
@@ -346,6 +408,17 @@ enum NotchPresentationProbe {
         host.panel.ignoresMouseEvents = true
         host.panel.orderFrontRegardless()
         var failures = checkHiddenReveal(screen: screen)
+        host.setOutline(enabled: true, color: .systemOrange)
+        if host.outlineProbeOpacity != 1 || host.outlineProbeWidth != 2 {
+            failures.append("the optional outline is not visible around the compact island")
+        }
+        if !host.outlineProbeTopOpen {
+            failures.append("the outline draws a line along the top of the screen")
+        }
+        host.setOutline(enabled: false, color: .white)
+        if host.outlineProbeOpacity != 0 || host.outlineProbeWidth != 0.5 {
+            failures.append("turning off the outline did not restore the compact island")
+        }
         if host.panel.collectionBehavior.intersection([.managed, .transient, .stationary]) != .stationary
             || !host.panel.collectionBehavior.contains(.canJoinAllSpaces) {
             failures.append("the island must stay stationary when revealing the desktop, without a conflicting window motion policy")
@@ -357,8 +430,7 @@ enum NotchPresentationProbe {
             || host.panel.level.rawValue >= NSWindow.Level.popUpMenu.rawValue {
             failures.append("top-edge activation must outrank status items while leaving native menus above the island")
         }
-        if let mask = host.panel.contentView?.layer?.mask as? CAShapeLayer,
-           let path = mask.path {
+        if let path = host.silhouetteProbePath {
             if !path.contains(CGPoint(x: 12, y: 1))
                 || path.contains(CGPoint(x: 12, y: geometry.collapsed.height - 1)) {
                 failures.append("physical silhouette is inverted")
@@ -381,6 +453,8 @@ enum NotchPresentationProbe {
         var maxAnchorError: CGFloat = 0
         var maxContentError: CGFloat = 0
         var canvasChangedSize = false
+        var contentStage: CGSize?
+        var stageChanged = false
         var noticeHeightLimit: CGFloat?
         var lostStationaryHover = false
         var hoverHosts = [host]
@@ -395,6 +469,10 @@ enum NotchPresentationProbe {
                 closingGlassOpenness = host.backdropProbeOpenness
             }
             if host.contentCanvasSize != host.panel.frame.size { canvasChangedSize = true }
+            let stage = host.contentStageSize
+            if let first = contentStage, first != stage { stageChanged = true }
+            contentStage = stage
+            if stage.width < host.panel.frame.width || stage.height < host.panel.frame.height { stageChanged = true }
             maxAnchorError = max(maxAnchorError, abs(host.panel.frame.maxY - (screen.frame.maxY)))
             maxContentError = max(maxContentError, abs(host.contentTopOnScreen - host.panel.frame.maxY))
             if abs(host.visibleFrame.maxY - host.panel.frame.maxY) > 0.5 {
@@ -418,9 +496,18 @@ enum NotchPresentationProbe {
                 sample()
             }
         }
+        let restingContour = host.backdropProbeContour
         host.present(size: geometry.expanded, geometry: geometry, animated: true, transitionContent: .reveal, usesGlass: true)
+        // SwiftUI draws the new contour a frame later; a window grown to
+        // open must not move what it already drew.
+        if !reduceMotion, host.backdropProbeContour != restingContour {
+            failures.append("growing the reserved area moved the drawn backdrop")
+        }
         if !reduceMotion, !host.contentProbeAnimating {
             failures.append("opening content has no reveal transition")
+        }
+        if !reduceMotion, !host.contentProbeGrowing || !host.contentProbeBlurred {
+            failures.append("opening content arrived without growing into focus")
         }
         if !reduceMotion, host.backdropProbeOpenness > 0.01 {
             failures.append("glass opened at full strength over the black strip it grows out of")
@@ -434,8 +521,13 @@ enum NotchPresentationProbe {
         if intermediate.height <= geometry.collapsed.height || intermediate.height >= geometry.expanded.height {
             if !reduceMotion { failures.append("opening has no intermediate frames") }
         }
+        if !reduceMotion, host.contentProbeGrowthDrift > 0.5 {
+            failures.append("growing content left the island's top centre: \(host.contentProbeGrowthDrift)")
+        }
         if !reduceMotion {
-            if !matchesNativeFrame(host.panel.frame, geometry.frame(for: geometry.expanded)) { failures.append("opening did not reserve its backing area") }
+            let reserved = NotchMotion.reservation(NotchMotion.envelope(from: geometry.collapsed, to: geometry.expanded),
+                                                   centring: geometry.expanded)
+            if !matchesNativeFrame(host.panel.frame, geometry.frame(for: reserved)) { failures.append("opening did not reserve its backing area") }
             let outside = CGPoint(x: host.panel.frame.minX + 12, y: host.panel.frame.minY + 4)
             if host.contains(outside) { failures.append("transparent transition area accepted an interaction") }
             if let canvas = host.panel.contentView {
@@ -457,6 +549,9 @@ enum NotchPresentationProbe {
         let openingResizes = nativeResizes
         if !reduceMotion, host.backdropProbeOpenness < 0.99 {
             failures.append("settled glass stayed partly closed")
+        }
+        if host.contentProbeBlurred || host.contentProbeGrowing {
+            failures.append("arrived content kept its blur or growth")
         }
         tracksClosingGlass = true
         host.present(size: geometry.notice, geometry: geometry, animated: true, transitionContent: .dismiss)
@@ -485,6 +580,9 @@ enum NotchPresentationProbe {
         }
         if host.contentProbeOpacity != 1 {
             failures.append("settled content remained hidden")
+        }
+        if host.contentProbeBlurred || host.contentProbeGrowing {
+            failures.append("content settled after closing kept its blur or growth")
         }
         if completedActions != 1 { failures.append("transition completion did not run exactly once") }
         // A leaving notice stays drawn while the shape closes around it, and
@@ -538,7 +636,7 @@ enum NotchPresentationProbe {
         }
         downloadHost.present(size: crowded.expanded, geometry: crowded, animated: true, usesGlass: true)
         advance(0.6)
-        if downloadHost.backdropProbeScheduled || downloadHost.backdropProbePath != downloadHost.silhouetteProbePath {
+        if downloadHost.backdropProbeScheduled || !downloadHost.backdropProbeFollowsSilhouette {
             failures.append("settled expanded backdrop kept an intermediate contour or scheduler")
         }
         downloadHost.panel.orderOut(nil)
@@ -553,7 +651,10 @@ enum NotchPresentationProbe {
             advance(0.04)
             let beforeReverse = host.visibleFrame
             host.present(size: geometry.collapsed, geometry: geometry, animated: true)
-            if !reduceMotion, abs(beforeReverse.height - host.visibleFrame.height) > 0.5 {
+            // The window is drawn with its new frame inside the call, and the
+            // island keeps moving meanwhile, so the reversal is judged by
+            // where its motion starts.
+            if !reduceMotion, abs(beforeReverse.height - (host.motionProbeStart?.height ?? .infinity)) > 0.5 {
                 failures.append("reversing the animation jumped to an endpoint")
             }
             advance(0.04)
@@ -579,6 +680,9 @@ enum NotchPresentationProbe {
         noticeHeightLimit = nil
         if maxAnchorError > 0.5 { failures.append("window detached from top: \(maxAnchorError)") }
         if canvasChangedSize { failures.append("content canvas escaped its stable native backing area") }
+        // SwiftUI redraws a resized hosting view a frame late; the island's
+        // content must never be resized with the window around it.
+        if stageChanged { failures.append("the content stage changed with the window or did not cover it") }
         if maxContentError > 0.5 { failures.append("content detached from window top: \(maxContentError)") }
         let pasteboard = NSPasteboard.withUniqueName()
         let fixture = URL(fileURLWithPath: "/tmp/notch-presentation-probe.txt")
@@ -664,7 +768,7 @@ enum NotchPresentationProbe {
             failures.append("a withdrawn drop left a painted fragment")
         }
         let bubbles = NotchWindowHost(content: AnyView(Color.clear), geometry: geometry, size: geometry.collapsed, background: surface,
-                                      quickAccess: { AnyView(NotchQuickAccessView(service: .shared, motion: $0)) })
+                                      quickAccess: quickAccess)
         bubbles.panel.alphaValue = 0
         bubbles.panel.ignoresMouseEvents = true
         bubbles.panel.orderFrontRegardless()
@@ -687,10 +791,47 @@ enum NotchPresentationProbe {
             if bubbles.quickAccessProbeTrackingAreas != 1 {
                 failures.append("floating controls did not create exactly one hover corridor")
             }
+            // Glass shades the circles like the island at the same height, and
+            // like its lip below it. Sampled under the glyph.
+            for point in bubbles.quickAccessProbeCenters {
+                let sample = CGPoint(x: point.x, y: point.y - 15)
+                let depth = min(1, (bubbles.panel.frame.maxY - sample.y) / geometry.expanded.height)
+                let expected = quickAccessGlass ? 1 - 0.45 * pow(depth, 2.5) : 1
+                let opacity = bubbles.quickAccessProbeOpacity(at: sample) ?? 0
+                if abs(opacity - expected) > 0.04 {
+                    failures.append("a floating control on the \(side) side drew opacity \(opacity), expected \(expected)")
+                }
+            }
+            if quickAccessGlass && !reduceMotion {
+                // A drop still inside the translucent island must not show through it.
+                bubbles.present(size: geometry.expanded, geometry: geometry, animated: false, usesGlass: true)
+                bubbles.present(size: geometry.expanded, geometry: geometry, animated: true, quickAccess: configuration, usesGlass: true)
+                let inside = bubbles.quickAccessProbeCenters.map { point in
+                    side == .bottom ? CGPoint(x: point.x, y: point.y + 38)
+                        : CGPoint(x: point.x + (side == .left ? 38 : -38), y: point.y)
+                }
+                var covered = 0
+                let deadline = Date().addingTimeInterval(1)
+                while Date() < deadline {
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.008))
+                    covered += inside.filter { (bubbles.quickAccessProbeOpacity(at: $0) ?? 0) > 0.01 }.count
+                }
+                if covered > 0 { failures.append("an emerging drop showed through the glass island on the \(side) side") }
+            }
             for point in bubbles.quickAccessProbeCenters {
                 let local = bubbles.panel.convertPoint(fromScreen: point)
                 if !bubbles.contains(point) || bubbles.panel.contentView?.hitTest(local) == nil {
                     failures.append("a floating control could not receive a click")
+                }
+                // The whole circle takes the click, up to just inside its rim.
+                for step in 0..<16 {
+                    let angle = CGFloat(step) * .pi / 8
+                    let radius = NotchQuickAccessLayout.diameter / 2 - 2
+                    let rim = CGPoint(x: point.x + cos(angle) * radius, y: point.y + sin(angle) * radius)
+                    if !bubbles.contains(rim) || bubbles.panel.contentView?.hitTest(bubbles.panel.convertPoint(fromScreen: rim)) == nil {
+                        failures.append("a floating control on the \(side) side missed a click near its rim")
+                        break
+                    }
                 }
                 let gap = side == .bottom ? CGPoint(x: point.x, y: point.y + 28)
                     : CGPoint(x: point.x + (side == .left ? 28 : -28), y: point.y)
@@ -830,7 +971,7 @@ enum NotchPresentationProbe {
                                              menuBarHeight: barHeight, compactSideRoom: 64)
                 geometry.quickAccessBottomInset = NotchQuickAccessLayout.gutter
                 let host = NotchWindowHost(content: AnyView(Color.clear), geometry: geometry, size: geometry.collapsed, background: surface,
-                                          quickAccess: { _ in AnyView(Color.clear) })
+                                          quickAccess: { _, _ in AnyView(Color.clear) })
                 host.panel.alphaValue = 0
                 host.panel.ignoresMouseEvents = true
                 host.panel.orderFrontRegardless()
