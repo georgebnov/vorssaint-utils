@@ -96,6 +96,10 @@ enum CleanerEligibilityTests {
                                                                    created: taken, timeZone: utc)
                      && !CleanerSupport.screenshotKeepsDefaultName("Screenshot 2026-09-21 at 2.13.20\u{202F}PM copy.png",
                                                                    created: taken, timeZone: utc)
+                     && !CleanerSupport.screenshotKeepsDefaultName("Screenshot 2026-09-21 at 14.13.20 ui.png",
+                                                                   created: taken, timeZone: utc)
+                     && !CleanerSupport.screenshotKeepsDefaultName("Screenshot 2026-09-21 at 14.13.20 ok.png",
+                                                                   created: taken, timeZone: utc)
                      && !CleanerSupport.screenshotKeepsDefaultName("button spacing 2026-09-21.png",
                                                                    created: taken, timeZone: utc),
                      "a capture renamed by adding to its name is no longer a default screenshot")

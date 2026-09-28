@@ -303,10 +303,41 @@ enum CleanerSupport {
     }
 
     /// The clock time macOS ends a capture name with, and whatever may follow
-    /// it. The separator and day period words are localized and unknowable
-    /// here, so the tail is judged by shape rather than by word.
+    /// it: on a twelve hour Mac the day period, and otherwise nothing.
     private static let captureTimePattern = try? NSRegularExpression(
         pattern: #"\d{1,2}\.\d{2}\.\d{2}(\D*)$"#)
+
+    /// Every day period macOS could have written into a capture name, in any
+    /// language it offers, reduced so that "p. m." and "p.m." compare equal.
+    /// Asking the system for them is what separates a real day period from a
+    /// short word somebody typed: "ui" and "ok" are not in here.
+    private static let dayPeriodSymbols: Set<String> = {
+        var symbols: Set<String> = []
+        for identifier in Locale.availableIdentifiers {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: identifier)
+            if let morning = formatter.amSymbol { symbols.insert(comparableDayPeriod(morning)) }
+            if let afternoon = formatter.pmSymbol { symbols.insert(comparableDayPeriod(afternoon)) }
+        }
+        symbols.remove("")
+        return symbols
+    }()
+
+    /// Letters and digits only, lowercased, so the spacing and full stops a
+    /// locale puts inside its day period stop mattering.
+    static func comparableDayPeriod(_ text: String) -> String {
+        text.lowercased().unicodeScalars.reduce(into: "") { result, scalar in
+            if CharacterSet.alphanumerics.contains(scalar) { result.unicodeScalars.append(scalar) }
+        }
+    }
+
+    /// Whether what trails the capture time is a day period macOS writes, or
+    /// nothing at all. A twenty four hour name ends on the time itself and
+    /// never reaches the symbol table.
+    static func isCaptureDayPeriod(_ text: String) -> Bool {
+        let comparable = comparableDayPeriod(text)
+        return comparable.isEmpty || dayPeriodSymbols.contains(comparable)
+    }
 
     /// The collision suffix macOS appends when a name is already taken.
     private static let captureCopyIndexPattern = try? NSRegularExpression(
@@ -317,10 +348,11 @@ enum CleanerSupport {
     /// decision the user made about it, so it never counts as forgotten, and
     /// that has to include a rename that keeps the original name and adds to
     /// it, which is what duplicating a capture in Finder produces
-    /// ("... 14.13.20 copy.png"). Anything after the time is therefore allowed
-    /// only two letters, which covers AM, PM, "p. m." and 上午 while excluding
-    /// any word somebody typed. The check stays deliberately narrow: a capture
-    /// saved without a date and a time in its name is simply skipped.
+    /// ("... 14.13.20 copy.png"). What follows the time therefore has to be a
+    /// day period macOS itself writes, asked of the system rather than guessed
+    /// at by length, so "14.13.20 ui.png" is a rename like any other. The
+    /// check stays deliberately narrow: a capture saved without a date and a
+    /// time in its name is simply skipped.
     static func screenshotKeepsDefaultName(_ name: String, created: Date,
                                            timeZone: TimeZone = .current) -> Bool {
         let formatter = DateFormatter()
@@ -336,7 +368,7 @@ enum CleanerSupport {
         guard let match = captureTimePattern.firstMatch(in: base, range: range),
               NSMaxRange(match.range) == range.length,
               let trailing = Range(match.range(at: 1), in: base) else { return false }
-        return letterCount(String(base[trailing])) <= 2
+        return isCaptureDayPeriod(String(base[trailing]))
     }
 
     static func strippingCaptureCopyIndex(_ name: String) -> String {
@@ -346,10 +378,6 @@ enum CleanerSupport {
               NSMaxRange(match.range) == range.length,
               let suffix = Range(match.range, in: name) else { return name }
         return String(name[name.startIndex..<suffix.lowerBound])
-    }
-
-    private static func letterCount(_ text: String) -> Int {
-        text.unicodeScalars.reduce(0) { CharacterSet.letters.contains($1) ? $0 + 1 : $0 }
     }
 
     /// A capture is forgotten when nothing happened to it for `days`: not
