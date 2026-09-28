@@ -302,10 +302,18 @@ enum CleanerSupport {
         return Date(timeIntervalSince1970: TimeInterval(seconds) + TimeInterval(nanoseconds) / 1e9)
     }
 
-    /// The clock time macOS ends a capture name with, and whatever may follow
-    /// it: on a twelve hour Mac the day period, and otherwise nothing.
+    /// The clock time macOS ends a capture name with, its hour, and whatever
+    /// follows: on a twelve hour Mac the day period, and otherwise nothing.
+    /// The tail is captured whole rather than as non-digits, because a few
+    /// locales write a day period that carries a digit of its own.
     private static let captureTimePattern = try? NSRegularExpression(
-        pattern: #"\d{1,2}\.\d{2}\.\d{2}(\D*)$"#)
+        pattern: #"(\d{1,2})\.\d{2}\.\d{2}(.*)$"#)
+
+    /// The spaces macOS puts before a day period. Only these are dropped when
+    /// comparing: treating the whole whitespace class as blank would swallow
+    /// a zero width character somebody pasted into a name and leave the empty
+    /// tail of a file nobody touched.
+    private static let captureSpaces = CharacterSet(charactersIn: " \u{00A0}\u{202F}")
 
     /// Every day period macOS could have written into a capture name, in any
     /// language it offers, reduced so that "p. m." and "p.m." compare equal.
@@ -323,20 +331,27 @@ enum CleanerSupport {
         return symbols
     }()
 
-    /// Letters and digits only, lowercased, so the spacing and full stops a
-    /// locale puts inside its day period stop mattering.
+    /// Lowercased with the spacing removed, and nothing else: one locale
+    /// writes "p. m." where another writes "p.m.", so spaces cannot count,
+    /// while every other mark has to survive. Dropping punctuation here would
+    /// erase the very thing a rename adds, and a file ending in "!" or an
+    /// emoji would reduce to the empty tail of an untouched name.
     static func comparableDayPeriod(_ text: String) -> String {
         text.lowercased().unicodeScalars.reduce(into: "") { result, scalar in
-            if CharacterSet.alphanumerics.contains(scalar) { result.unicodeScalars.append(scalar) }
+            if !captureSpaces.contains(scalar) { result.unicodeScalars.append(scalar) }
         }
     }
 
-    /// Whether what trails the capture time is a day period macOS writes, or
-    /// nothing at all. A twenty four hour name ends on the time itself and
-    /// never reaches the symbol table.
-    static func isCaptureDayPeriod(_ text: String) -> Bool {
+    /// Whether what trails the capture time is a day period macOS writes after
+    /// that particular hour, or nothing at all. A day period only exists on a
+    /// twelve hour clock, so an hour past twelve has to end on the time
+    /// itself; without that, a single letter that some locale happens to use
+    /// for morning would pass as a suffix on a twenty four hour name.
+    static func isCaptureDayPeriod(_ text: String, hour: Int) -> Bool {
         let comparable = comparableDayPeriod(text)
-        return comparable.isEmpty || dayPeriodSymbols.contains(comparable)
+        if comparable.isEmpty { return true }
+        guard (1...12).contains(hour) else { return false }
+        return dayPeriodSymbols.contains(comparable)
     }
 
     /// The collision suffix macOS appends when a name is already taken.
@@ -367,8 +382,10 @@ enum CleanerSupport {
         let range = NSRange(base.startIndex..<base.endIndex, in: base)
         guard let match = captureTimePattern.firstMatch(in: base, range: range),
               NSMaxRange(match.range) == range.length,
-              let trailing = Range(match.range(at: 1), in: base) else { return false }
-        return isCaptureDayPeriod(String(base[trailing]))
+              let hourRange = Range(match.range(at: 1), in: base),
+              let hour = Int(base[hourRange]),
+              let trailing = Range(match.range(at: 2), in: base) else { return false }
+        return isCaptureDayPeriod(String(base[trailing]), hour: hour)
     }
 
     static func strippingCaptureCopyIndex(_ name: String) -> String {

@@ -100,6 +100,28 @@ enum CleanerEligibilityTests {
                                                                    created: taken, timeZone: utc)
                      && !CleanerSupport.screenshotKeepsDefaultName("Screenshot 2026-09-21 at 14.13.20 ok.png",
                                                                    created: taken, timeZone: utc)
+                     // A mark is a rename too, and must not reduce to the empty
+                     // tail that an untouched twenty four hour name carries.
+                     && !CleanerSupport.screenshotKeepsDefaultName("Screenshot 2026-09-21 at 14.13.20 !.png",
+                                                                   created: taken, timeZone: utc)
+                     && !CleanerSupport.screenshotKeepsDefaultName("Screenshot 2026-09-21 at 14.13.20 \u{1F525}.png",
+                                                                   created: taken, timeZone: utc)
+                     && !CleanerSupport.screenshotKeepsDefaultName("Screenshot 2026-09-21 at 2.13.20\u{202F}PM!.png",
+                                                                   created: taken, timeZone: utc)
+                     && !CleanerSupport.screenshotKeepsDefaultName("Screenshot 2026-09-21 at 2.13.20\u{202F}PM \u{2B50}.png",
+                                                                   created: taken, timeZone: utc)
+                     // A single letter is a day period in some locale, so only
+                     // a twelve hour clock may carry one: 14.13.20 cannot.
+                     && !CleanerSupport.screenshotKeepsDefaultName("Screenshot 2026-09-21 at 14.13.20 M.png",
+                                                                   created: taken, timeZone: utc)
+                     // An invisible character is not the absence of a suffix.
+                     && !CleanerSupport.screenshotKeepsDefaultName("Screenshot 2026-09-21 at 14.13.20 \u{200B}.png",
+                                                                   created: taken, timeZone: utc)
+                     // The day periods themselves keep working, spacing and all.
+                     && CleanerSupport.screenshotKeepsDefaultName("Captura de pantalla 2026-09-21 a las 2.13.20 p. m..png",
+                                                                  created: taken, timeZone: utc)
+                     && CleanerSupport.screenshotKeepsDefaultName("\u{622A}\u{5C4F}2026-09-21 2.13.20\u{4E0B}\u{5348}.png",
+                                                                  created: taken, timeZone: utc)
                      && !CleanerSupport.screenshotKeepsDefaultName("button spacing 2026-09-21.png",
                                                                    created: taken, timeZone: utc),
                      "a capture renamed by adding to its name is no longer a default screenshot")
