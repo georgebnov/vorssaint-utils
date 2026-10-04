@@ -1190,14 +1190,22 @@ enum CommandBarCatalog {
 
         if let battery = cachedBattery {
             let value = "\(battery.percent)%"
-            let detail = battery.isCharging
-                ? bar.answerBatteryCharging
-                : (battery.isOnBattery ? bar.answerBatteryLabel : bar.answerBatteryPlugged)
+            // The row said "Plugged" beside a battery drawn without its bolt;
+            // text and icon now answer from the same reading.
+            let state = BatteryPowerSupport.state(isCharging: battery.isCharging,
+                                                  externalConnected: battery.isOnExternalPower,
+                                                  hasBattery: true)
+            let detail: String
+            switch state {
+            case .charging: detail = bar.answerBatteryCharging
+            case .externalPower: detail = bar.answerBatteryPlugged
+            case .onBattery, .unavailable: detail = bar.answerBatteryLabel
+            }
             entries.append(CommandBarEntry(
                 id: "answer.battery",
                 title: bar.answerBatteryLabel,
                 subtitle: detail,
-                icon: .symbol(battery.isCharging ? "battery.100.bolt" : "battery.75"),
+                icon: .symbol(state == .onBattery ? "battery.75" : "battery.100.bolt"),
                 answerValue: value,
                 countsUsage: false,
                 run: { _ in copyAnswer(value) }))

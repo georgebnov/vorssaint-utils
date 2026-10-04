@@ -218,12 +218,23 @@ struct PowerSection: View {
         Text(text).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(.secondary)
     }
 
+    /// External power earns the bolt whether or not a charge is running, so a
+    /// Mac held at a limit is not drawn as one on its own battery.
+    private var batteryUsageSymbol: String {
+        switch BatteryPowerSupport.state(isCharging: monitor.snapshot.power?.isCharging ?? false,
+                                         externalConnected: monitor.snapshot.power?.externalConnected ?? false,
+                                         hasBattery: monitor.snapshot.power?.hasBattery ?? true) {
+        case .charging, .externalPower: return "bolt.fill"
+        case .onBattery, .unavailable: return "battery.100"
+        }
+    }
+
     @ViewBuilder
     private func batteryUsageRow(editing: Bool) -> some View {
         if let charge = monitor.snapshot.power?.chargePercent {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
-                    Image(systemName: (monitor.snapshot.power?.isCharging ?? false) ? "bolt.fill" : "battery.100")
+                    Image(systemName: batteryUsageSymbol)
                         .font(.system(size: 9))
                         .foregroundStyle(.secondary)
                         .frame(width: 10)

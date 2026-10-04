@@ -253,6 +253,58 @@ enum MetricsFeatureTests {
         suite.expect(BatteryTimeSupport.formatted(seconds: 30) == "0h 1m",
                "battery time keeps a positive final minute visible")
 
+        expectEqual(BatteryPowerSupport.menuBarSymbol(percent: 80,
+                                                      isCharging: false,
+                                                      externalConnected: true),
+                    "battery.100.bolt",
+                    "a charge held at a limit still reads as external power")
+        expectEqual(BatteryPowerSupport.menuBarSymbol(percent: 100,
+                                                      isCharging: false,
+                                                      externalConnected: true),
+                    "battery.100.bolt",
+                    "a full battery on its adapter still reads as external power")
+        expectEqual(BatteryPowerSupport.menuBarSymbol(percent: 42,
+                                                      isCharging: true,
+                                                      externalConnected: true),
+                    "battery.100.bolt",
+                    "a charge in progress keeps the bolt")
+        expectEqual(BatteryPowerSupport.menuBarSymbol(percent: 42,
+                                                      isCharging: true,
+                                                      externalConnected: false),
+                    "battery.100.bolt",
+                    "a charge reported before its adapter keeps the bolt")
+        expectEqual(BatteryPowerSupport.menuBarSymbol(percent: 42,
+                                                      isCharging: false,
+                                                      externalConnected: false),
+                    "battery.50",
+                    "an unplugged Mac shows its charge level, never the bolt")
+        expectEqual(BatteryPowerSupport.menuBarSymbol(percent: 5,
+                                                      isCharging: false,
+                                                      externalConnected: false),
+                    "battery.0",
+                    "an unplugged Mac keeps the level thresholds it always had")
+
+        suite.expect(BatteryPowerSupport.state(isCharging: false,
+                                               externalConnected: true,
+                                               hasBattery: true) == .externalPower,
+               "a stopped charge on the adapter is external power, not battery power")
+        suite.expect(BatteryPowerSupport.state(isCharging: true,
+                                               externalConnected: true,
+                                               hasBattery: true) == .charging,
+               "a charge in progress is named as charging")
+        suite.expect(BatteryPowerSupport.state(isCharging: false,
+                                               externalConnected: false,
+                                               hasBattery: true) == .onBattery,
+               "an unplugged Mac with a battery is on battery power")
+        suite.expect(BatteryPowerSupport.state(isCharging: false,
+                                               externalConnected: false,
+                                               hasBattery: false) == .unavailable,
+               "a Mac with no battery and no adapter reading has nothing to report")
+        suite.expect(BatteryPowerSupport.state(isCharging: true,
+                                               externalConnected: false,
+                                               hasBattery: true) == .charging,
+               "a charge claimed without an adapter flag is still never battery power")
+
         suite.expect(MetricFormat.systemPowerWatts(measured: 3,
                                              batteryWatts: 10,
                                              externalConnected: true) == 3,

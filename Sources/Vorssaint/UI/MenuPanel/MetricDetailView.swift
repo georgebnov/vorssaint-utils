@@ -532,7 +532,10 @@ struct MetricDetailView: View {
             return "\(MetricFormat.diskBytes(disk.freeBytes)) \(l10n.s.diskAvailable)"
         case .battery:
             if PowerSampler.hasInternalBattery {
-                return (snapshot.power?.isCharging ?? false) ? l10n.s.powerCharging : l10n.s.powerOnBattery
+                return powerStateText(BatteryPowerSupport.state(
+                    isCharging: snapshot.power?.isCharging ?? false,
+                    externalConnected: snapshot.power?.externalConnected ?? false,
+                    hasBattery: true))
             }
             return PeripheralBatterySupport.sorted(snapshot.peripheralBatteries).first?.name
                 ?? l10n.s.peripheralBatteryNoDevices
@@ -782,6 +785,15 @@ struct MetricDetailView: View {
         if power.externalConnected { return l10n.s.powerPluggedIn }
         if power.hasBattery { return l10n.s.powerOnBattery }
         return l10n.s.powerUnavailable
+    }
+
+    private func powerStateText(_ state: BatteryPowerSupport.State) -> String {
+        switch state {
+        case .charging: return l10n.s.powerCharging
+        case .externalPower: return l10n.s.powerPluggedIn
+        case .onBattery: return l10n.s.powerOnBattery
+        case .unavailable: return l10n.s.powerUnavailable
+        }
     }
 
     private func mbps(_ value: Double) -> String {
