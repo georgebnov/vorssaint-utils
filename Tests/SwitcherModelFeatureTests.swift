@@ -4194,6 +4194,15 @@ enum SwitcherModelFeatureTests {
         suite.expect(WindowServerSupport.bounds(from: scannedNeighbours[0]) == scannedWindow
                 && WindowServerSupport.bounds(from: [:]) == nil,
                "a window's rectangle comes from its bounds entry and from nothing else")
+        // Window snapping follows a dragged window through this lookup rather
+        // than asking the window's own application, which answers on the main
+        // thread that is busy redrawing that drag.
+        suite.expect(WindowServerSupport.frame(ofWindowID: 12, in: scannedNeighbours) == scannedNeighbour
+                && WindowServerSupport.frame(ofWindowID: 11, in: scannedNeighbours) == scannedWindow,
+               "a window's rectangle is found by its own identifier, not by position in the list")
+        suite.expect(WindowServerSupport.frame(ofWindowID: 99, in: scannedNeighbours) == nil
+                && WindowServerSupport.frame(ofWindowID: 11, in: []) == nil,
+               "a window the window server no longer lists reports no rectangle")
         suite.expect(WindowServerSupport.windowCandidate(in: scannedNeighbours, at: scannedEdgePoint,
                                                    ownProcessID: 501,
                                                    pidIsEligible: { _ in true })?.pid == 1001,
