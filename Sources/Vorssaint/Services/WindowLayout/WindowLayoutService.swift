@@ -68,6 +68,7 @@ final class WindowLayoutService: ObservableObject {
     private var edgeSnapDrag: WindowEdgeSnapDrag?
     private var edgeSnapSequenceGeneration = 0
     private var edgeSnapResolving = false
+    private var edgeSnapLastPointer: CGPoint?
     private let edgeSnapResolveQueue = DispatchQueue(label: "com.vorssaint.edge-snap-resolve",
                                                      qos: .userInitiated)
     private var edgeSnapPreviewPanel: NSPanel?
@@ -1439,6 +1440,7 @@ final class WindowLayoutService: ObservableObject {
         edgeSnapResolving = false
         edgeSnapPressOrigin = nil
         edgeSnapPressCandidate = nil
+        edgeSnapLastPointer = nil
         edgeSnapSequenceSuppressed = false
         edgeSnapResolveAttempts = 0
         edgeSnapDrag = nil
@@ -1540,6 +1542,7 @@ final class WindowLayoutService: ObservableObject {
                 cancelEdgeSnapTracking()
                 return
             }
+            edgeSnapLastPointer = location
             if edgeSnapDrag == nil,
                WindowGestureSupport.exceedsDragSlop(from: pressOrigin, to: location) {
                 let now = ProcessInfo.processInfo.systemUptime
@@ -1556,9 +1559,20 @@ final class WindowLayoutService: ObservableObject {
         case .up(let location):
             let pressOrigin = edgeSnapPressOrigin
             let pressCandidate = edgeSnapPressCandidate
-            if edgeSnapDrag == nil,
+            // Looking the window up here waits on its app from the run loop
+            // that serves the taps. It happens only for a release over a snap
+            // zone, once the window server shows the window followed the
+            // pointer, so the release of a drag inside an app never asks that
+            // app.
+            let releasedOverZone = pressOrigin.map {
+                WindowGestureSupport.exceedsDragSlop(from: $0, to: location)
+                    && edgeSnapTarget(atQuartzPoint: location) != nil
+            } ?? false
+            var lookedUpAtRelease = false
+            if edgeSnapDrag == nil, releasedOverZone,
                let pressOrigin, let pressCandidate,
-               WindowGestureSupport.exceedsDragSlop(from: pressOrigin, to: location) {
+               edgeSnapWindowFollowed(pressCandidate, from: pressOrigin, to: location) {
+                lookedUpAtRelease = true
                 edgeSnapDrag = makeEdgeSnapDrag(pointerStart: pressOrigin,
                                                 pressCandidate: pressCandidate)
             }
@@ -1566,16 +1580,20 @@ final class WindowLayoutService: ObservableObject {
             let completed = edgeSnapDrag
             edgeSnapPressOrigin = nil
             edgeSnapPressCandidate = nil
+            edgeSnapLastPointer = nil
             edgeSnapResolveAttempts = 0
             edgeSnapDrag = nil
             hideEdgeSnapPreview(immediately: false)
             let generation = edgeSnapSequenceGeneration
             guard let completed else {
-                guard let pressOrigin, let pressCandidate,
-                      WindowGestureSupport.exceedsDragSlop(from: pressOrigin, to: location)
+                // A window whose lookup already came back empty at release is
+                // not asked a second time.
+                guard releasedOverZone, !lookedUpAtRelease,
+                      let pressOrigin, let pressCandidate
                 else { return }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) { [weak self] in
                     guard let self, generation == self.edgeSnapSequenceGeneration,
+                          self.edgeSnapWindowFollowed(pressCandidate, from: pressOrigin, to: location),
                           let delayed = self.makeEdgeSnapDrag(pointerStart: pressOrigin,
                                                               pressCandidate: pressCandidate)
                     else { return }
@@ -1604,18 +1622,35 @@ final class WindowLayoutService: ObservableObject {
         }
     }
 
+    /// The check 40 ms after a release that left the drag undecided, which
+    /// covers nearly every drag inside an app. The frame comes from the window
+    /// server like every sample before it, and only a window that moved goes on
+    /// to the placement, the one step that has to ask its app.
     private func applyDelayedEdgeSnapIfMoved(_ drag: WindowEdgeSnapDrag,
                                              releaseLocation: CGPoint) {
-        guard let current = frame(of: drag.window),
+        guard let current = WindowServerSupport.frame(ofWindowID: drag.key.windowID),
               WindowEdgeSnapSupport.classify(
                 initialFrame: drag.initialFrame,
-                currentFrame: CGRect(origin: current.origin, size: current.size),
+                currentFrame: current,
                 pointerStart: drag.pointerStart,
                 pointerNow: releaseLocation
               ) == .moving,
               let target = edgeSnapTarget(atQuartzPoint: releaseLocation)
         else { return }
         applyEdgeSnap(drag, target: target)
+    }
+
+    /// Whether the pressed window followed the pointer, as the window server
+    /// sees it right now. It decides whether the release may ask the window's
+    /// app at all.
+    private func edgeSnapWindowFollowed(_ candidate: WindowServerWindowCandidate,
+                                        from pointerStart: CGPoint,
+                                        to pointer: CGPoint) -> Bool {
+        guard let current = WindowServerSupport.frame(ofWindowID: candidate.windowID) else { return false }
+        return WindowEdgeSnapSupport.classify(initialFrame: candidate.frame,
+                                              currentFrame: current,
+                                              pointerStart: pointerStart,
+                                              pointerNow: pointer) == .moving
     }
 
     private func edgeSnapConflictsWithWindowGesture(flags: CGEventFlags) -> Bool {
@@ -1641,9 +1676,10 @@ final class WindowLayoutService: ObservableObject {
     /// Nothing during a drag needs that element: the rectangle comes from the
     /// window server and the snap target is pure geometry. It is needed only to
     /// move the window once the drag ends, so it is resolved in the background
-    /// and adopted when it arrives. A drag that ends before the answer does
-    /// still snaps: the release path looks the window up itself, and paying for
-    /// that there costs nothing, because no drag is waiting on it by then.
+    /// and adopted when it arrives. A drag that ends before the answer still
+    /// snaps, because the release path looks the window up itself. That lookup
+    /// runs on the run loop the taps share, so it is kept for a window the
+    /// window server saw follow the pointer.
     private func beginEdgeSnapResolve(pointerStart: CGPoint,
                                       pressCandidate: WindowServerWindowCandidate) {
         edgeSnapResolving = true
@@ -1672,6 +1708,12 @@ final class WindowLayoutService: ObservableObject {
                                                        mismatchCount: 0,
                                                        isMoving: false,
                                                        target: nil)
+                // The pointer may already rest at an edge, and no further drag
+                // event would come to show the preview or to protect the top
+                // edge until it moves again.
+                if let pointer = self.edgeSnapLastPointer {
+                    self.updateEdgeSnapDrag(at: pointer, forceSample: true)
+                }
             }
         }
     }
@@ -1697,7 +1739,8 @@ final class WindowLayoutService: ObservableObject {
     }
 
     /// The same lookup as the background path, run inline. Only the release
-    /// path uses it, where the drag is already over and nothing is waiting.
+    /// path uses it, for a window the window server saw follow the pointer,
+    /// since the taps wait on this run loop while it asks the window's app.
     private func makeEdgeSnapDrag(pointerStart: CGPoint,
                                   pressCandidate: WindowServerWindowCandidate) -> WindowEdgeSnapDrag? {
         guard let resolved = resolveEdgeSnapWindow(pressCandidate: pressCandidate,
@@ -1824,6 +1867,7 @@ final class WindowLayoutService: ObservableObject {
         edgeSnapResolving = false
         edgeSnapPressOrigin = nil
         edgeSnapPressCandidate = nil
+        edgeSnapLastPointer = nil
         edgeSnapSequenceSuppressed = true
         edgeSnapResolveAttempts = 0
         edgeSnapDrag = nil

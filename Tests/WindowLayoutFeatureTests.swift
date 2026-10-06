@@ -14,6 +14,8 @@ import VMStatisticsCompat
 enum WindowLayoutFeatureTests {
     static func run(_ suite: TestSuite) {
         WindowDirectionalModifierRuntimeTests.run(suite)
+        WindowEdgeSnapRuntimeTests.run(suite)
+        WindowGestureApplyRuntimeTests.run(suite)
         let modifierTrigger = WindowDirectionalTrigger(storageValue: "modifiers:control+command")
         suite.expect(modifierTrigger?.displayString == "⌃⌘"
                 && modifierTrigger?.storageValue == "modifiers:control+command",

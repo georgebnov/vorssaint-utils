@@ -1380,6 +1380,37 @@ def main():
 
     window_directional = "Sources/Vorssaint/Services/WindowLayout/WindowLayoutService.swift"
     window_gesture = "Sources/Vorssaint/Services/WindowLayout/WindowGestureSupport.swift"
+    write("WindowEdgeSnapRuntime.swift", "import AppKit\nimport CoreGraphics\nimport Foundation\n"
+          + "extension WindowEdgeSnapRuntimeTests {\n"
+          + "".join(declaration(window_directional, prefix).replace("private ", "", 1)
+                    for prefix in ["private enum WindowEdgeSnapPointerInput {",
+                                   "private struct WindowEdgeSnapDrag {",
+                                   "private struct WindowLayoutTarget {"])
+          + "final class Host: Fixture {\n"
+          + "".join(declaration(window_directional, prefix).replace("private ", "", 1)
+                    .replace("AXIsProcessTrusted()", "WindowEdgeSnapRuntimeTests.accessibilityGranted")
+                    for prefix in [
+              "    private func observeEdgeSnapEvent(",
+              "    private func handleEdgeSnapInput(",
+              "    private func applyDelayedEdgeSnapIfMoved(",
+              "    private func edgeSnapWindowFollowed(",
+              "    private func beginEdgeSnapResolve(",
+              "    private func resolveEdgeSnapWindow(",
+              "    private func makeEdgeSnapDrag(",
+              "    private func updateEdgeSnapDrag(",
+              "    private func applyEdgeSnap(",
+              "    private func cancelEdgeSnapTracking()"])
+          + "}\n}\n")
+    write("WindowGestureApplyRuntime.swift", "import AppKit\nimport CoreGraphics\nimport Foundation\n"
+          + "extension WindowGestureApplyRuntimeTests {\n"
+          + declaration(window_directional, "private struct WindowPointerGesture {").replace("private ", "", 1)
+          + "final class Host: Fixture {\n"
+          + "".join(declaration(window_directional, prefix).replace("private ", "", 1)
+                    for prefix in [
+              "    private func enqueueGestureApply(",
+              "    private func drainGestureApplies()",
+              "    private func flushGestureApplies()"])
+          + "}\n}\n")
     write("WindowDirectionalModifierRuntime.swift", "import AppKit\nimport CoreGraphics\nimport Foundation\n"
           + "extension WindowDirectionalModifierRuntimeTests {\n"
           + "".join(declaration(window_gesture, prefix) for prefix in [
