@@ -171,8 +171,12 @@ enum WindowEdgeSnapRuntimeTests {
         /// Every event and every look happens at the test's clock.
         static func seconds(of event: CGEvent) -> TimeInterval { clock }
         static var uptimeSeconds: TimeInterval { clock }
+        /// The right edge is a wall unless a test puts a display past it,
+        /// which makes it a seam that answers only while the pointer is slow.
+        var displayPastEdge = false
         func edgeSnapTarget(atQuartzPoint point: CGPoint, velocity: CGVector) -> WindowEdgeSnapTarget? {
-            guard point.x >= 1428, abs(velocity.dx) <= EdgeSnapGeometry.crossingSpeed,
+            guard point.x >= 1428,
+                  !displayPastEdge || abs(velocity.dx) <= EdgeSnapGeometry.crossingSpeed,
                   enabledEdgeSnapZones.contains(.right) else { return nil }
             return WindowEdgeSnapTarget(zone: .right,
                                         frame: CGRect(x: 720, y: 25, width: 720, height: 875),
@@ -420,6 +424,7 @@ enum WindowEdgeSnapRuntimeTests {
 
         reset()
         let passing = Host()
+        passing.displayPastEdge = true
         send(passing, .leftMouseDown, pressPoint)
         clock = 0.01
         currentFrame = initialFrame.offsetBy(dx: 40, dy: 0)
@@ -431,10 +436,11 @@ enum WindowEdgeSnapRuntimeTests {
         send(passing, .leftMouseDragged, edgePoint)
         send(passing, .leftMouseUp, edgePoint)
         suite.expect(passing.previews == 0 && passing.placements.isEmpty,
-                     "a window carried through an edge at speed shows no preview and is not placed")
+                     "a window carried through a seam at speed shows no preview and is not placed")
 
         reset()
         let stopping = Host()
+        stopping.displayPastEdge = true
         send(stopping, .leftMouseDown, pressPoint)
         clock = 0.01
         currentFrame = initialFrame.offsetBy(dx: 40, dy: 0)
@@ -451,6 +457,6 @@ enum WindowEdgeSnapRuntimeTests {
         let shownOnceStill = stopping.previews == 1
         send(stopping, .leftMouseUp, edgePoint)
         suite.expect(hiddenWhileFast && shownOnceStill && stopping.placements.count == 1,
-                     "a pointer that arrives fast and stops at an edge shows the preview once still, with no further event, and snaps")
+                     "a pointer that arrives fast and stops at a seam shows the preview once still, with no further event, and snaps")
     }
 }

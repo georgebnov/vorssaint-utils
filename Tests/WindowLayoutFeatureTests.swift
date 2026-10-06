@@ -526,10 +526,11 @@ enum WindowLayoutFeatureTests {
                    at: seamPoint, screens: seamScreens,
                    velocity: CGVector(dx: WindowEdgeSnapSupport.crossingSpeed, dy: 0))?.action == .rightHalf,
                "a pointer slowed to the crossing speed counts as aiming")
-        suite.expect(snapTarget(CGPoint(x: 1440, y: 450), screens: [snapScreen])?.action == .rightHalf
-                && WindowEdgeSnapSupport.target(at: CGPoint(x: 1440, y: 450), screens: [snapScreen],
-                                                velocity: CGVector(dx: fast, dy: 0)) == nil,
-               "an outer edge follows the same rule, and the wall it is settles the pointer there")
+        suite.expect(WindowEdgeSnapSupport.target(at: CGPoint(x: 1440, y: 450), screens: [snapScreen],
+                                                  velocity: CGVector(dx: fast, dy: 0))?.action == .rightHalf
+                && WindowEdgeSnapSupport.target(at: CGPoint(x: 0, y: 450), screens: seamScreens,
+                                                velocity: CGVector(dx: -fast, dy: 0))?.action == .leftHalf,
+               "an edge with no display beyond it snaps at any speed, so a window flung at it and let go still tiles")
         let upperSnapScreen = WindowEdgeSnapScreen(
             frame: CGRect(x: 0, y: 900, width: 1280, height: 800),
             visibleFrame: CGRect(x: 0, y: 900, width: 1280, height: 775)
@@ -537,10 +538,9 @@ enum WindowLayoutFeatureTests {
         suite.expect(snapTarget(CGPoint(x: 720, y: snapVisibleFrame.maxY),
                           screens: [snapScreen, upperSnapScreen])?.action == .maximize,
                "a menu bar below another display still previews maximize")
-        suite.expect(snapTarget(CGPoint(x: 720, y: 900),
-                          screens: [snapScreen, upperSnapScreen])?.visibleFrame
-               == upperSnapScreen.visibleFrame,
-               "a stacked seam belongs to the display that would hold the pointer")
+        let stackedSeam = snapTarget(CGPoint(x: 720, y: 900), screens: [snapScreen, upperSnapScreen])
+        suite.expect(stackedSeam?.visibleFrame == snapVisibleFrame && stackedSeam?.action == .maximize,
+               "the top row of a lower display is its own, as the pointer sees it, so it maximizes there")
         suite.expect(WindowEdgeSnapSupport.target(at: CGPoint(x: 720, y: 905),
                                                   screens: [snapScreen, upperSnapScreen],
                                                   velocity: CGVector(dx: 0, dy: fast)) == nil,
@@ -555,12 +555,19 @@ enum WindowLayoutFeatureTests {
                      "a pointer moving steadily reads its speed over the recent path")
         suite.expect(trail.velocity(at: 0.1 + WindowEdgeSnapPointerTrail.stillAfter + 0.01) == .zero,
                      "a pointer with no event for a moment reads as stopped")
-        trail.append(CGPoint(x: 101, y: 0), at: 0.5)
-        suite.expect(trail.velocity(at: 0.5) == .zero,
-                     "movement after a pause starts a new path instead of averaging in the stop")
-        trail.append(CGPoint(x: 111, y: 0), at: 0.51)
-        suite.expect(abs(trail.velocity(at: 0.51).dx - 1000) < 1,
-                     "a restarted path reads full speed from its second event")
+        var nudged = trail
+        nudged.append(CGPoint(x: 101, y: 0), at: 0.5)
+        suite.expect(abs(nudged.velocity(at: 0.5).dx) <= WindowEdgeSnapSupport.crossingSpeed,
+                     "a 1 pt nudge after resting, such as the button coming up, still reads as settled")
+        var flicked = trail
+        flicked.append(CGPoint(x: 130, y: 0), at: 0.5)
+        suite.expect(flicked.velocity(at: 0.5).dx > WindowEdgeSnapSupport.crossingSpeed,
+                     "a flick out of a rest reads fast from its first event")
+        var polled = WindowEdgeSnapPointerTrail()
+        polled.append(.zero, at: 1)
+        polled.append(CGPoint(x: 1, y: 0), at: 1.001)
+        suite.expect(abs(polled.velocity(at: 1.001).dx) <= WindowEdgeSnapSupport.crossingSpeed,
+                     "a mouse polling every millisecond does not turn a 1 pt step into a crossing")
         suite.expect(WindowEdgeSnapSupport.systemTilingEnabled { _ in nil },
                "unwritten system tiling choices keep their enabled default")
         suite.expect(!WindowEdgeSnapSupport.systemTilingEnabled { _ in false },

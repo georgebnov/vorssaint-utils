@@ -1851,10 +1851,9 @@ final class WindowLayoutService: ObservableObject {
     private func scheduleEdgeSnapStillCheck() {
         edgeSnapStillCheckGeneration += 1
         let check = edgeSnapStillCheckGeneration
-        let generation = edgeSnapSequenceGeneration
         DispatchQueue.main.asyncAfter(deadline: .now() + WindowEdgeSnapPointerTrail.stillAfter) { [weak self] in
+            // Every cancel resets the trail, which moves this generation on too.
             guard let self, check == self.edgeSnapStillCheckGeneration,
-                  generation == self.edgeSnapSequenceGeneration,
                   let pointer = self.edgeSnapLastPointer else { return }
             self.updateEdgeSnapDrag(at: pointer, forceSample: true, now: Self.uptimeSeconds)
         }
