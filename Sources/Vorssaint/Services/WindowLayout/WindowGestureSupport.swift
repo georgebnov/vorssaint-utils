@@ -402,10 +402,53 @@ struct WindowEdgeSnapTarget: Equatable {
     var action: WindowLayoutAction { zone.action }
 }
 
+/// The pointer's recent path during a drag, kept just long enough to tell
+/// how fast it is moving. One event can follow another by a millisecond, so
+/// speed is read over a short span rather than between two events.
+struct WindowEdgeSnapPointerTrail {
+    /// How far back the speed reaches.
+    static let span: TimeInterval = 0.05
+    /// A pointer with no event for this long has stopped, whatever its last
+    /// speed was.
+    static let stillAfter: TimeInterval = 0.1
+
+    private var samples: [(time: TimeInterval, point: CGPoint)] = []
+
+    mutating func append(_ point: CGPoint, at time: TimeInterval) {
+        // A pause starts the path over, so speed after it is not averaged
+        // with the stop.
+        if let last = samples.last, time < last.time || time - last.time >= Self.stillAfter {
+            samples.removeAll()
+        }
+        samples.append((time, point))
+        // One sample from before the span stays as its starting point.
+        while samples.count > 2, time - samples[1].time >= Self.span {
+            samples.removeFirst()
+        }
+    }
+
+    mutating func reset() {
+        samples.removeAll()
+    }
+
+    /// Points per second, in the coordinates the points were given in.
+    func velocity(at now: TimeInterval) -> CGVector {
+        guard let last = samples.last, let first = samples.first,
+              now - last.time < Self.stillAfter else { return .zero }
+        let elapsed = last.time - first.time
+        guard elapsed > 0 else { return .zero }
+        return CGVector(dx: (last.point.x - first.point.x) / elapsed,
+                        dy: (last.point.y - first.point.y) / elapsed)
+    }
+}
+
 enum WindowEdgeSnapSupport {
     static let activationDistance: CGFloat = 12
     static let resizeCornerDistance: CGFloat = 12
     static let resizeEdgeDistance: CGFloat = 5
+    /// Points per second across an edge, above which the pointer is passing
+    /// rather than aiming. Tuned by hand against macOS tiling.
+    static let crossingSpeed: CGFloat = 400
     static let desktopAndDockSettingsURL = URL(
         string: "x-apple.systempreferences:com.apple.Desktop-Settings.extension"
     )!
@@ -533,18 +576,34 @@ enum WindowEdgeSnapSupport {
 
     /// Resolves the hot zone under an AppKit-coordinate pointer. Screen frames
     /// choose the reachable edge; visible frames keep the result clear of the
-    /// menu bar and Dock. A seam shared by two displays is not an edge, so a
-    /// window can cross it without being caught halfway through.
+    /// menu bar and Dock.
+    ///
+    /// An edge counts only while the pointer is slow across it, the way macOS
+    /// tiling tells aiming from passing. A screen's outer edge stops the
+    /// pointer, so it always settles there; a seam two displays share does
+    /// not, so a window dragged through it at speed crosses to the next
+    /// display and one slowed down there tiles. Speed along an edge never
+    /// counts, so sliding from a half to a corner keeps the preview.
     static func target(at point: CGPoint,
                        screens: [WindowEdgeSnapScreen],
+                       velocity: CGVector = .zero,
                        distance: CGFloat = activationDistance,
                        enabledZones: Set<WindowEdgeSnapZone> =
                            WindowEdgeSnapZone.allEnabled) -> WindowEdgeSnapTarget? {
+        let settledAcross = abs(velocity.dx) <= crossingSpeed
+        let settledUpDown = abs(velocity.dy) <= crossingSpeed
         let ordered = screens.enumerated().sorted {
-            distanceSquared(from: point, to: $0.element.frame)
-                < distanceSquared(from: point, to: $1.element.frame)
+            let first = distanceSquared(from: point, to: $0.element.frame)
+            let second = distanceSquared(from: point, to: $1.element.frame)
+            guard first == second else { return first < second }
+            // On a seam both displays are at distance zero. The one holding
+            // the pointer wins, and an otherwise equal pair keeps the order
+            // the system gave, which sorting alone does not promise.
+            let holdsFirst = holds($0.element.frame, point)
+            guard holdsFirst == holds($1.element.frame, point) else { return holdsFirst }
+            return $0.offset < $1.offset
         }
-        for (index, screen) in ordered {
+        for (_, screen) in ordered {
             let frame = screen.frame
             guard frame.width > 0, frame.height > 0,
                   screen.visibleFrame.width > 0, screen.visibleFrame.height > 0,
@@ -554,23 +613,12 @@ enum WindowEdgeSnapSupport {
                   point.y <= frame.maxY + distance
             else { continue }
 
-            let otherFrames = screens.enumerated().compactMap { offset, value in
-                offset == index ? nil : value.frame
-            }
-            let nearLeft = abs(point.x - frame.minX) <= distance
-                && !hasNeighbor(beyond: .left, point: point, distance: distance, frames: otherFrames)
-            let nearRight = abs(point.x - frame.maxX) <= distance
-                && !hasNeighbor(beyond: .right, point: point, distance: distance, frames: otherFrames)
+            let nearLeft = settledAcross && abs(point.x - frame.minX) <= distance
+            let nearRight = settledAcross && abs(point.x - frame.maxX) <= distance
             let visibleTop = min(max(screen.visibleFrame.maxY, frame.minY), frame.maxY)
-            let physicalTop = CGPoint(x: point.x, y: frame.maxY)
-            let nearTop = point.y >= visibleTop - distance
-                && point.y <= frame.maxY + distance
-                && !hasNeighbor(beyond: .top,
-                                point: physicalTop,
-                                distance: distance,
-                                frames: otherFrames)
-            let nearBottom = abs(point.y - frame.minY) <= distance
-                && !hasNeighbor(beyond: .bottom, point: point, distance: distance, frames: otherFrames)
+            let nearTop = settledUpDown
+                && point.y >= visibleTop - distance && point.y <= frame.maxY + distance
+            let nearBottom = settledUpDown && abs(point.y - frame.minY) <= distance
             guard nearLeft || nearRight || nearTop || nearBottom else { continue }
 
             let horizontalCorner = horizontalCornerWidth(for: frame)
@@ -624,10 +672,6 @@ enum WindowEdgeSnapSupport {
         return nil
     }
 
-    private enum Edge {
-        case left, right, top, bottom
-    }
-
     private static func horizontalCornerWidth(for frame: CGRect) -> CGFloat {
         min(max(frame.width * 0.18, 96), 180)
     }
@@ -639,20 +683,6 @@ enum WindowEdgeSnapSupport {
         return .top
     }
 
-    private static func hasNeighbor(beyond edge: Edge,
-                                    point: CGPoint,
-                                    distance: CGFloat,
-                                    frames: [CGRect]) -> Bool {
-        var probe = point
-        switch edge {
-        case .left: probe.x -= distance + 1
-        case .right: probe.x += distance + 1
-        case .top: probe.y += distance + 1
-        case .bottom: probe.y -= distance + 1
-        }
-        return frames.contains { inclusiveContains($0, probe) }
-    }
-
     private static func sharesPerpendicularEdges(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
         let sharesVerticalEdge = abs(lhs.minX - rhs.minX) <= sizeTolerance
             || abs(lhs.maxX - rhs.maxX) <= sizeTolerance
@@ -661,9 +691,12 @@ enum WindowEdgeSnapSupport {
         return sharesVerticalEdge && sharesHorizontalEdge
     }
 
-    private static func inclusiveContains(_ frame: CGRect, _ point: CGPoint) -> Bool {
-        point.x >= frame.minX && point.x <= frame.maxX
-            && point.y >= frame.minY && point.y <= frame.maxY
+    /// Which display a coordinate belongs to. Display frames tile without
+    /// overlapping, so a far edge is the next display's first point: the rule
+    /// the pointer itself follows as it crosses a seam.
+    private static func holds(_ frame: CGRect, _ point: CGPoint) -> Bool {
+        point.x >= frame.minX && point.x < frame.maxX
+            && point.y >= frame.minY && point.y < frame.maxY
     }
 
     private static func distanceSquared(from point: CGPoint, to frame: CGRect) -> CGFloat {

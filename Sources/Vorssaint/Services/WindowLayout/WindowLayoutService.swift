@@ -69,6 +69,10 @@ final class WindowLayoutService: ObservableObject {
     private var edgeSnapSequenceGeneration = 0
     private var edgeSnapResolving = false
     private var edgeSnapLastPointer: CGPoint?
+    private var edgeSnapTrail = WindowEdgeSnapPointerTrail()
+    /// The pending look once the pointer stops, since a stop sends no event.
+    /// Each new event or reset moves it on, which drops the one before.
+    private var edgeSnapStillCheckGeneration = 0
     private let edgeSnapResolveQueue = DispatchQueue(label: "com.vorssaint.edge-snap-resolve",
                                                      qos: .userInitiated)
     private var edgeSnapPreviewPanel: NSPanel?
@@ -1441,6 +1445,7 @@ final class WindowLayoutService: ObservableObject {
         edgeSnapPressOrigin = nil
         edgeSnapPressCandidate = nil
         edgeSnapLastPointer = nil
+        resetEdgeSnapTrail()
         edgeSnapSequenceSuppressed = false
         edgeSnapResolveAttempts = 0
         edgeSnapDrag = nil
@@ -1486,7 +1491,7 @@ final class WindowLayoutService: ObservableObject {
             input = .down(location: event.location, flags: event.flags)
         case .leftMouseDragged:
             let originalLocation = event.location
-            input = .dragged(location: originalLocation)
+            input = .dragged(location: originalLocation, time: Self.seconds(of: event))
             if let drag = edgeSnapDrag,
                drag.isMoving,
                drag.protectsSystemTopEdge {
@@ -1497,12 +1502,22 @@ final class WindowLayoutService: ObservableObject {
                 )
             }
         case .leftMouseUp:
-            input = .up(location: event.location)
+            input = .up(location: event.location, time: Self.seconds(of: event))
         default:
             return Unmanaged.passUnretained(event)
         }
         DispatchQueue.main.async { [weak self] in self?.handleEdgeSnapInput(input) }
         return Unmanaged.passUnretained(event)
+    }
+
+    /// Seconds of uptime, on the clock event timestamps use, so speed is read
+    /// from when the pointer moved rather than when the main thread got to it.
+    private static func seconds(of event: CGEvent) -> TimeInterval {
+        TimeInterval(EventTimestamp.nanoseconds(of: event)) / 1_000_000_000
+    }
+
+    private static var uptimeSeconds: TimeInterval {
+        TimeInterval(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1_000_000_000
     }
 
     private func handleEdgeSnapInput(_ input: WindowEdgeSnapPointerInput) {
@@ -1534,7 +1549,7 @@ final class WindowLayoutService: ObservableObject {
             edgeSnapResolveAttempts = 0
             edgeSnapLastResolveAt = 0
 
-        case .dragged(let location):
+        case .dragged(let location, let time):
             guard let pressOrigin = edgeSnapPressOrigin,
                   let pressCandidate = edgeSnapPressCandidate,
                   activeGesture == nil, pendingGesture == nil
@@ -1543,6 +1558,7 @@ final class WindowLayoutService: ObservableObject {
                 return
             }
             edgeSnapLastPointer = location
+            edgeSnapTrail.append(location, at: time)
             if edgeSnapDrag == nil,
                WindowGestureSupport.exceedsDragSlop(from: pressOrigin, to: location) {
                 let now = ProcessInfo.processInfo.systemUptime
@@ -1554,11 +1570,13 @@ final class WindowLayoutService: ObservableObject {
                                          pressCandidate: pressCandidate)
                 }
             }
-            updateEdgeSnapDrag(at: location, forceSample: false)
+            updateEdgeSnapDrag(at: location, forceSample: false, now: time)
+            scheduleEdgeSnapStillCheck()
 
-        case .up(let location):
+        case .up(let location, let time):
             let pressOrigin = edgeSnapPressOrigin
             let pressCandidate = edgeSnapPressCandidate
+            let velocity = edgeSnapTrail.velocity(at: time)
             // Looking the window up here waits on its app from the run loop
             // that serves the taps. It happens only for a release over a snap
             // zone, once the window server shows the window followed the
@@ -1566,7 +1584,7 @@ final class WindowLayoutService: ObservableObject {
             // app.
             let releasedOverZone = pressOrigin.map {
                 WindowGestureSupport.exceedsDragSlop(from: $0, to: location)
-                    && edgeSnapTarget(atQuartzPoint: location) != nil
+                    && edgeSnapTarget(atQuartzPoint: location, velocity: velocity) != nil
             } ?? false
             var lookedUpAtRelease = false
             if edgeSnapDrag == nil, releasedOverZone,
@@ -1576,11 +1594,12 @@ final class WindowLayoutService: ObservableObject {
                 edgeSnapDrag = makeEdgeSnapDrag(pointerStart: pressOrigin,
                                                 pressCandidate: pressCandidate)
             }
-            updateEdgeSnapDrag(at: location, forceSample: true)
+            updateEdgeSnapDrag(at: location, forceSample: true, now: time)
             let completed = edgeSnapDrag
             edgeSnapPressOrigin = nil
             edgeSnapPressCandidate = nil
             edgeSnapLastPointer = nil
+            resetEdgeSnapTrail()
             edgeSnapResolveAttempts = 0
             edgeSnapDrag = nil
             hideEdgeSnapPreview(immediately: false)
@@ -1597,7 +1616,7 @@ final class WindowLayoutService: ObservableObject {
                           let delayed = self.makeEdgeSnapDrag(pointerStart: pressOrigin,
                                                               pressCandidate: pressCandidate)
                     else { return }
-                    self.applyDelayedEdgeSnapIfMoved(delayed, releaseLocation: location)
+                    self.applyDelayedEdgeSnapIfMoved(delayed, releaseLocation: location, velocity: velocity)
                 }
                 return
             }
@@ -1607,7 +1626,7 @@ final class WindowLayoutService: ObservableObject {
                 else { return }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) { [weak self] in
                     guard let self, generation == self.edgeSnapSequenceGeneration else { return }
-                    self.applyDelayedEdgeSnapIfMoved(completed, releaseLocation: location)
+                    self.applyDelayedEdgeSnapIfMoved(completed, releaseLocation: location, velocity: velocity)
                 }
                 return
             }
@@ -1627,7 +1646,8 @@ final class WindowLayoutService: ObservableObject {
     /// server like every sample before it, and only a window that moved goes on
     /// to the placement, the one step that has to ask its app.
     private func applyDelayedEdgeSnapIfMoved(_ drag: WindowEdgeSnapDrag,
-                                             releaseLocation: CGPoint) {
+                                             releaseLocation: CGPoint,
+                                             velocity: CGVector) {
         guard let current = WindowServerSupport.frame(ofWindowID: drag.key.windowID),
               WindowEdgeSnapSupport.classify(
                 initialFrame: drag.initialFrame,
@@ -1635,7 +1655,7 @@ final class WindowLayoutService: ObservableObject {
                 pointerStart: drag.pointerStart,
                 pointerNow: releaseLocation
               ) == .moving,
-              let target = edgeSnapTarget(atQuartzPoint: releaseLocation)
+              let target = edgeSnapTarget(atQuartzPoint: releaseLocation, velocity: velocity)
         else { return }
         applyEdgeSnap(drag, target: target)
     }
@@ -1712,7 +1732,7 @@ final class WindowLayoutService: ObservableObject {
                 // event would come to show the preview or to protect the top
                 // edge until it moves again.
                 if let pointer = self.edgeSnapLastPointer {
-                    self.updateEdgeSnapDrag(at: pointer, forceSample: true)
+                    self.updateEdgeSnapDrag(at: pointer, forceSample: true, now: Self.uptimeSeconds)
                 }
             }
         }
@@ -1759,12 +1779,14 @@ final class WindowLayoutService: ObservableObject {
                                   target: nil)
     }
 
-    private func updateEdgeSnapDrag(at location: CGPoint, forceSample: Bool) {
+    /// `now` is the moment the reading is for: the event's own time, or the
+    /// clock when no event brought it.
+    private func updateEdgeSnapDrag(at location: CGPoint, forceSample: Bool, now: TimeInterval) {
         guard var drag = edgeSnapDrag else { return }
         if !drag.isMoving {
-            let now = ProcessInfo.processInfo.systemUptime
-            guard forceSample || now - drag.lastSampleAt >= edgeSnapSampleInterval else { return }
-            drag.lastSampleAt = now
+            let sampledAt = ProcessInfo.processInfo.systemUptime
+            guard forceSample || sampledAt - drag.lastSampleAt >= edgeSnapSampleInterval else { return }
+            drag.lastSampleAt = sampledAt
             // Sampled up to thirty times a second for the length of a drag, so
             // it must not wait on anybody. Accessibility would ask the dragged
             // application, whose main thread is the one redrawing that drag;
@@ -1799,7 +1821,7 @@ final class WindowLayoutService: ObservableObject {
             }
         }
 
-        let target = edgeSnapTarget(atQuartzPoint: location)
+        let target = edgeSnapTarget(atQuartzPoint: location, velocity: edgeSnapTrail.velocity(at: now))
         if target != drag.target {
             drag.target = target
             if let target {
@@ -1811,14 +1833,36 @@ final class WindowLayoutService: ObservableObject {
         edgeSnapDrag = drag
     }
 
-    private func edgeSnapTarget(atQuartzPoint point: CGPoint) -> WindowEdgeSnapTarget? {
+    /// `velocity` is in Quartz points per second, like the point.
+    private func edgeSnapTarget(atQuartzPoint point: CGPoint, velocity: CGVector) -> WindowEdgeSnapTarget? {
         let appKitPoint = CGPoint(x: point.x, y: menuBarScreenTopY - point.y)
         let screens = NSScreen.screens.map {
             WindowEdgeSnapScreen(frame: $0.frame, visibleFrame: $0.visibleFrame)
         }
         return WindowEdgeSnapSupport.target(at: appKitPoint,
                                             screens: screens,
+                                            velocity: CGVector(dx: velocity.dx, dy: -velocity.dy),
                                             enabledZones: enabledEdgeSnapZones)
+    }
+
+    /// A pointer that stops at an edge after moving fast sends no further
+    /// event, so the last reading would stay fast. One look after it has been
+    /// still for long enough reads it as stopped.
+    private func scheduleEdgeSnapStillCheck() {
+        edgeSnapStillCheckGeneration += 1
+        let check = edgeSnapStillCheckGeneration
+        let generation = edgeSnapSequenceGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + WindowEdgeSnapPointerTrail.stillAfter) { [weak self] in
+            guard let self, check == self.edgeSnapStillCheckGeneration,
+                  generation == self.edgeSnapSequenceGeneration,
+                  let pointer = self.edgeSnapLastPointer else { return }
+            self.updateEdgeSnapDrag(at: pointer, forceSample: true, now: Self.uptimeSeconds)
+        }
+    }
+
+    private func resetEdgeSnapTrail() {
+        edgeSnapTrail.reset()
+        edgeSnapStillCheckGeneration += 1
     }
 
     private func edgeSnapQuartzScreenFrames() -> [CGRect] {
@@ -1868,6 +1912,7 @@ final class WindowLayoutService: ObservableObject {
         edgeSnapPressOrigin = nil
         edgeSnapPressCandidate = nil
         edgeSnapLastPointer = nil
+        resetEdgeSnapTrail()
         edgeSnapSequenceSuppressed = true
         edgeSnapResolveAttempts = 0
         edgeSnapDrag = nil
@@ -2913,8 +2958,9 @@ private struct WindowGestureTarget {
 
 private enum WindowEdgeSnapPointerInput {
     case down(location: CGPoint, flags: CGEventFlags)
-    case dragged(location: CGPoint)
-    case up(location: CGPoint)
+    /// `time` is the event's own timestamp, in seconds of uptime.
+    case dragged(location: CGPoint, time: TimeInterval)
+    case up(location: CGPoint, time: TimeInterval)
 }
 
 private struct WindowEdgeSnapDrag {

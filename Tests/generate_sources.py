@@ -1402,6 +1402,8 @@ def main():
               "    private func resolveEdgeSnapWindow(",
               "    private func makeEdgeSnapDrag(",
               "    private func updateEdgeSnapDrag(",
+              "    private func scheduleEdgeSnapStillCheck()",
+              "    private func resetEdgeSnapTrail()",
               "    private func applyEdgeSnap(",
               "    private func cancelEdgeSnapTracking()"])
           + "}\n}\n")

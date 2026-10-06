@@ -24,6 +24,9 @@ enum WindowEdgeSnapRuntimeTests {
     static var mainAXWhileHeld = 0
     static var mainAXAfterRelease = 0
     static var mainLookupsAfterRelease = 0
+    /// Event time in seconds. Held still unless a test moves it, so the
+    /// pointer reads as settled by default.
+    static var clock: TimeInterval = 0
     static let initialFrame = CGRect(x: 100, y: 100, width: 800, height: 500)
     static let pressPoint = CGPoint(x: 200, y: 200)
     static let edgePoint = CGPoint(x: 1439, y: 200)
@@ -152,6 +155,8 @@ enum WindowEdgeSnapRuntimeTests {
         var edgeSnapSequenceGeneration = 0
         var edgeSnapResolving = false
         var edgeSnapLastPointer: CGPoint?
+        var edgeSnapTrail = WindowEdgeSnapPointerTrail()
+        var edgeSnapStillCheckGeneration = 0
         let edgeSnapResolveQueue = DispatchQueue(label: "test lookup", qos: .userInitiated)
         var activeGesture: Bool?
         var pendingGesture: Bool?
@@ -163,8 +168,12 @@ enum WindowEdgeSnapRuntimeTests {
         func syncWithPreferences() {}
         func edgeSnapConflictsWithWindowGesture(flags: CGEventFlags) -> Bool { false }
         func edgeSnapQuartzScreenFrames() -> [CGRect] { [CGRect(x: 0, y: 0, width: 1440, height: 900)] }
-        func edgeSnapTarget(atQuartzPoint point: CGPoint) -> WindowEdgeSnapTarget? {
-            guard point.x >= 1428, enabledEdgeSnapZones.contains(.right) else { return nil }
+        /// Every event and every look happens at the test's clock.
+        static func seconds(of event: CGEvent) -> TimeInterval { clock }
+        static var uptimeSeconds: TimeInterval { clock }
+        func edgeSnapTarget(atQuartzPoint point: CGPoint, velocity: CGVector) -> WindowEdgeSnapTarget? {
+            guard point.x >= 1428, abs(velocity.dx) <= EdgeSnapGeometry.crossingSpeed,
+                  enabledEdgeSnapZones.contains(.right) else { return nil }
             return WindowEdgeSnapTarget(zone: .right,
                                         frame: CGRect(x: 720, y: 25, width: 720, height: 875),
                                         visibleFrame: CGRect(x: 0, y: 25, width: 1440, height: 875))
@@ -217,6 +226,7 @@ enum WindowEdgeSnapRuntimeTests {
         mainAXWhileHeld = 0
         mainAXAfterRelease = 0
         mainLookupsAfterRelease = 0
+        clock = 0
         WindowEdgeSnapSupport.isSystemTilingEnabled = false
         WindowEdgeSnapSupport.isSystemTopWindowOverviewDragEnabled = false
         DispatchQueue.main.jobs.removeAll()
@@ -407,5 +417,40 @@ enum WindowEdgeSnapRuntimeTests {
         send(cancelled, .leftMouseDragged, CGPoint(x: 240, y: 200))
         suite.expect(!adoptedStale && DispatchQueue.lookup.jobs.count == 1,
                      "a lookup still running when tracking is cancelled is dropped, and the next drag starts its own")
+
+        reset()
+        let passing = Host()
+        send(passing, .leftMouseDown, pressPoint)
+        clock = 0.01
+        currentFrame = initialFrame.offsetBy(dx: 40, dy: 0)
+        send(passing, .leftMouseDragged, CGPoint(x: 240, y: 200))
+        DispatchQueue.drainLookups()
+        DispatchQueue.main.drain()
+        clock = 0.02
+        currentFrame = movedToEdge
+        send(passing, .leftMouseDragged, edgePoint)
+        send(passing, .leftMouseUp, edgePoint)
+        suite.expect(passing.previews == 0 && passing.placements.isEmpty,
+                     "a window carried through an edge at speed shows no preview and is not placed")
+
+        reset()
+        let stopping = Host()
+        send(stopping, .leftMouseDown, pressPoint)
+        clock = 0.01
+        currentFrame = initialFrame.offsetBy(dx: 40, dy: 0)
+        send(stopping, .leftMouseDragged, CGPoint(x: 240, y: 200))
+        DispatchQueue.drainLookups()
+        DispatchQueue.main.drain()
+        clock = 0.02
+        currentFrame = movedToEdge
+        _ = stopping.observeEdgeSnapEvent(type: .leftMouseDragged, event: event(.leftMouseDragged, at: edgePoint))
+        DispatchQueue.main.jobs.removeFirst()()
+        let hiddenWhileFast = stopping.previews == 0
+        clock = 0.03 + WindowEdgeSnapPointerTrail.stillAfter
+        DispatchQueue.main.drain()
+        let shownOnceStill = stopping.previews == 1
+        send(stopping, .leftMouseUp, edgePoint)
+        suite.expect(hiddenWhileFast && shownOnceStill && stopping.placements.count == 1,
+                     "a pointer that arrives fast and stops at an edge shows the preview once still, with no further event, and snaps")
     }
 }

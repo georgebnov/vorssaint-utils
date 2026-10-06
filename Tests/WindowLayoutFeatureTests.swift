@@ -496,19 +496,71 @@ enum WindowLayoutFeatureTests {
             visibleFrame: CGRect(x: 1440, y: 40, width: 1920, height: 1040)
         )
         suite.expect(snapTarget(CGPoint(x: 1440, y: 450),
-                          screens: [snapScreen, rightSnapScreen]) == nil,
-               "a shared display seam stays open for moving a window across")
+                          screens: [snapScreen, rightSnapScreen])
+               == WindowEdgeSnapTarget(zone: .left,
+                                       frame: CGRect(x: 1440, y: 40, width: 960, height: 1040),
+                                       visibleFrame: rightSnapScreen.visibleFrame),
+               "the first column of a display is its left half, even against a neighbor")
         suite.expect(WindowEdgeSnapSupport.target(at: CGPoint(x: 1415, y: 450),
                                             screens: [snapScreen, rightSnapScreen],
-                                            distance: 30) == nil,
-               "the whole activation band around a shared seam stays open")
+                                            distance: 30)
+               == WindowEdgeSnapTarget(zone: .right,
+                                       frame: CGRect(x: 720, y: 40, width: 720, height: 835),
+                                       visibleFrame: snapVisibleFrame),
+               "a pointer slowed at a shared seam previews the half of the display it is still on")
+        suite.expect(snapTarget(CGPoint(x: 1440, y: 1000),
+                          screens: [snapScreen, rightSnapScreen])?.action == .topLeft,
+               "the corners of a shared seam keep their two-axis placements")
+        let seamPoint = CGPoint(x: 1435, y: 450)
+        let seamScreens = [snapScreen, rightSnapScreen]
+        let fast = WindowEdgeSnapSupport.crossingSpeed * 3
+        suite.expect(WindowEdgeSnapSupport.target(at: seamPoint, screens: seamScreens,
+                                                  velocity: CGVector(dx: fast, dy: 0)) == nil
+                && WindowEdgeSnapSupport.target(at: seamPoint, screens: seamScreens,
+                                                velocity: CGVector(dx: -fast, dy: 0)) == nil,
+               "a pointer passing through a shared seam at speed, either way, is not caught")
+        suite.expect(WindowEdgeSnapSupport.target(at: seamPoint, screens: seamScreens,
+                                                  velocity: CGVector(dx: 0, dy: fast))?.action == .rightHalf,
+               "sliding fast along a seam keeps its preview, so a corner stays one slide away")
+        suite.expect(WindowEdgeSnapSupport.target(
+                   at: seamPoint, screens: seamScreens,
+                   velocity: CGVector(dx: WindowEdgeSnapSupport.crossingSpeed, dy: 0))?.action == .rightHalf,
+               "a pointer slowed to the crossing speed counts as aiming")
+        suite.expect(snapTarget(CGPoint(x: 1440, y: 450), screens: [snapScreen])?.action == .rightHalf
+                && WindowEdgeSnapSupport.target(at: CGPoint(x: 1440, y: 450), screens: [snapScreen],
+                                                velocity: CGVector(dx: fast, dy: 0)) == nil,
+               "an outer edge follows the same rule, and the wall it is settles the pointer there")
         let upperSnapScreen = WindowEdgeSnapScreen(
             frame: CGRect(x: 0, y: 900, width: 1280, height: 800),
             visibleFrame: CGRect(x: 0, y: 900, width: 1280, height: 775)
         )
         suite.expect(snapTarget(CGPoint(x: 720, y: snapVisibleFrame.maxY),
-                          screens: [snapScreen, upperSnapScreen]) == nil,
-               "a menu bar boundary below another display remains an open seam")
+                          screens: [snapScreen, upperSnapScreen])?.action == .maximize,
+               "a menu bar below another display still previews maximize")
+        suite.expect(snapTarget(CGPoint(x: 720, y: 900),
+                          screens: [snapScreen, upperSnapScreen])?.visibleFrame
+               == upperSnapScreen.visibleFrame,
+               "a stacked seam belongs to the display that would hold the pointer")
+        suite.expect(WindowEdgeSnapSupport.target(at: CGPoint(x: 720, y: 905),
+                                                  screens: [snapScreen, upperSnapScreen],
+                                                  velocity: CGVector(dx: 0, dy: fast)) == nil,
+               "a pointer passing up through a stacked seam at speed is not caught")
+
+        var trail = WindowEdgeSnapPointerTrail()
+        for step in 0...10 {
+            trail.append(CGPoint(x: CGFloat(step) * 10, y: 0), at: TimeInterval(step) * 0.01)
+        }
+        let steady = trail.velocity(at: 0.1)
+        suite.expect(abs(steady.dx - 1000) < 1 && steady.dy == 0,
+                     "a pointer moving steadily reads its speed over the recent path")
+        suite.expect(trail.velocity(at: 0.1 + WindowEdgeSnapPointerTrail.stillAfter + 0.01) == .zero,
+                     "a pointer with no event for a moment reads as stopped")
+        trail.append(CGPoint(x: 101, y: 0), at: 0.5)
+        suite.expect(trail.velocity(at: 0.5) == .zero,
+                     "movement after a pause starts a new path instead of averaging in the stop")
+        trail.append(CGPoint(x: 111, y: 0), at: 0.51)
+        suite.expect(abs(trail.velocity(at: 0.51).dx - 1000) < 1,
+                     "a restarted path reads full speed from its second event")
         suite.expect(WindowEdgeSnapSupport.systemTilingEnabled { _ in nil },
                "unwritten system tiling choices keep their enabled default")
         suite.expect(!WindowEdgeSnapSupport.systemTilingEnabled { _ in false },
