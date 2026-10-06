@@ -526,11 +526,10 @@ enum WindowLayoutFeatureTests {
                    at: seamPoint, screens: seamScreens,
                    velocity: CGVector(dx: WindowEdgeSnapSupport.crossingSpeed, dy: 0))?.action == .rightHalf,
                "a pointer slowed to the crossing speed counts as aiming")
-        suite.expect(WindowEdgeSnapSupport.target(at: CGPoint(x: 1440, y: 450), screens: [snapScreen],
-                                                  velocity: CGVector(dx: fast, dy: 0))?.action == .rightHalf
-                && WindowEdgeSnapSupport.target(at: CGPoint(x: 0, y: 450), screens: seamScreens,
-                                                velocity: CGVector(dx: -fast, dy: 0))?.action == .leftHalf,
-               "an edge with no display beyond it snaps at any speed, so a window flung at it and let go still tiles")
+        suite.expect(snapTarget(CGPoint(x: 1440, y: 450), screens: [snapScreen])?.action == .rightHalf
+                && WindowEdgeSnapSupport.target(at: CGPoint(x: 1440, y: 450), screens: [snapScreen],
+                                                velocity: CGVector(dx: fast, dy: 0)) == nil,
+               "an outer edge follows the same rule: it tiles once the wall has slowed the pointer, not while it is still flying in")
         let upperSnapScreen = WindowEdgeSnapScreen(
             frame: CGRect(x: 0, y: 900, width: 1280, height: 800),
             visibleFrame: CGRect(x: 0, y: 900, width: 1280, height: 775)

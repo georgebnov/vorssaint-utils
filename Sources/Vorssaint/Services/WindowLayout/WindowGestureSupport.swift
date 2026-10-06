@@ -586,13 +586,12 @@ enum WindowEdgeSnapSupport {
     /// choose the reachable edge; visible frames keep the result clear of the
     /// menu bar and Dock.
     ///
-    /// A seam two displays share counts only while the pointer is slow across
-    /// it, the way macOS tiling tells aiming from passing: a window dragged
-    /// through at speed crosses to the next display, and one slowed down
-    /// there tiles. An edge with nothing beyond it is a wall that stops the
-    /// pointer, so it counts at any speed, and a window flung at it and let
-    /// go at once still tiles. Speed along an edge never counts, so sliding
-    /// from a half to a corner keeps the preview.
+    /// An edge counts only while the pointer is slow across it, the way macOS
+    /// tiling tells aiming from passing. A screen's outer edge stops the
+    /// pointer, so it settles there; a seam two displays share does not, so
+    /// a window dragged through it at speed crosses to the next display and
+    /// one slowed down there tiles. Speed along an edge never counts, so
+    /// sliding from a half to a corner keeps the preview.
     static func target(at point: CGPoint,
                        screens: [WindowEdgeSnapScreen],
                        velocity: CGVector = .zero,
@@ -601,7 +600,6 @@ enum WindowEdgeSnapSupport {
                            WindowEdgeSnapZone.allEnabled) -> WindowEdgeSnapTarget? {
         let settledAcross = abs(velocity.dx) <= crossingSpeed
         let settledUpDown = abs(velocity.dy) <= crossingSpeed
-        let frames = screens.map(\.frame)
         let ordered = screens.enumerated().sorted {
             let first = distanceSquared(from: point, to: $0.element.frame)
             let second = distanceSquared(from: point, to: $1.element.frame)
@@ -623,18 +621,12 @@ enum WindowEdgeSnapSupport {
                   point.y <= frame.maxY + distance
             else { continue }
 
-            // Just past each edge, level with the pointer: another display
-            // there makes the edge a seam.
-            let open = { (probe: CGPoint) in frames.contains { $0 != frame && $0.contains(probe) } }
-            let nearLeft = abs(point.x - frame.minX) <= distance
-                && (settledAcross || !open(CGPoint(x: frame.minX - 0.5, y: point.y)))
-            let nearRight = abs(point.x - frame.maxX) <= distance
-                && (settledAcross || !open(CGPoint(x: frame.maxX + 0.5, y: point.y)))
+            let nearLeft = settledAcross && abs(point.x - frame.minX) <= distance
+            let nearRight = settledAcross && abs(point.x - frame.maxX) <= distance
             let visibleTop = min(max(screen.visibleFrame.maxY, frame.minY), frame.maxY)
-            let nearTop = point.y >= visibleTop - distance && point.y <= frame.maxY + distance
-                && (settledUpDown || !open(CGPoint(x: point.x, y: frame.maxY + 0.5)))
-            let nearBottom = abs(point.y - frame.minY) <= distance
-                && (settledUpDown || !open(CGPoint(x: point.x, y: frame.minY - 0.5)))
+            let nearTop = settledUpDown
+                && point.y >= visibleTop - distance && point.y <= frame.maxY + distance
+            let nearBottom = settledUpDown && abs(point.y - frame.minY) <= distance
             guard nearLeft || nearRight || nearTop || nearBottom else { continue }
 
             let horizontalCorner = horizontalCornerWidth(for: frame)
