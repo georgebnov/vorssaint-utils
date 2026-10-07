@@ -1395,6 +1395,7 @@ def main():
                     .replace("AXIsProcessTrusted()", "WindowEdgeSnapRuntimeTests.accessibilityGranted")
                     for prefix in [
               "    private func observeEdgeSnapEvent(",
+              "    private static func seconds(of event: CGEvent)",
               "    private func handleEdgeSnapInput(",
               "    private func applyDelayedEdgeSnapIfMoved(",
               "    private func edgeSnapWindowFollowed(",
@@ -1402,7 +1403,9 @@ def main():
               "    private func resolveEdgeSnapWindow(",
               "    private func makeEdgeSnapDrag(",
               "    private func updateEdgeSnapDrag(",
+              "    private func edgeSnapTarget(",
               "    private func scheduleEdgeSnapStillCheck()",
+              "    private func armEdgeSnapStillCheck(",
               "    private func resetEdgeSnapTrail()",
               "    private func applyEdgeSnap(",
               "    private func cancelEdgeSnapTracking()"])

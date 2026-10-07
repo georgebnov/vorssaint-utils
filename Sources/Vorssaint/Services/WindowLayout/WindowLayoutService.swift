@@ -71,8 +71,10 @@ final class WindowLayoutService: ObservableObject {
     private var edgeSnapLastPointer: CGPoint?
     private var edgeSnapTrail = WindowEdgeSnapPointerTrail()
     /// The pending look once the pointer stops, since a stop sends no event.
-    /// Each new event or reset moves it on, which drops the one before.
+    /// Only one waits at a time, and a reset moves the generation on, which
+    /// drops it.
     private var edgeSnapStillCheckGeneration = 0
+    private var edgeSnapStillCheckPending = false
     private let edgeSnapResolveQueue = DispatchQueue(label: "com.vorssaint.edge-snap-resolve",
                                                      qos: .userInitiated)
     private var edgeSnapPreviewPanel: NSPanel?
@@ -1513,7 +1515,11 @@ final class WindowLayoutService: ObservableObject {
     /// Seconds of uptime, on the clock event timestamps use, so speed is read
     /// from when the pointer moved rather than when the main thread got to it.
     private static func seconds(of event: CGEvent) -> TimeInterval {
-        TimeInterval(EventTimestamp.nanoseconds(of: event)) / 1_000_000_000
+        // Some software posts events with no timestamp. Read as zero, every
+        // event of a drag would land on one instant: the trail would never
+        // age and every reading would be fast, so the clock stands in.
+        guard event.timestamp != 0 else { return uptimeSeconds }
+        return TimeInterval(EventTimestamp.nanoseconds(of: event)) / 1_000_000_000
     }
 
     private static var uptimeSeconds: TimeInterval {
@@ -1845,23 +1851,41 @@ final class WindowLayoutService: ObservableObject {
                                             enabledZones: enabledEdgeSnapZones)
     }
 
-    /// A pointer that stops at an edge after moving fast sends no further
+    /// A pointer that stops at a seam after moving fast sends no further
     /// event, so the last reading would stay fast. One look after it has been
-    /// still for long enough reads it as stopped.
+    /// still for long enough reads it as stopped. A mouse can report a
+    /// thousand times a second through any drag, text selection included, so
+    /// one look waits at a time and moves itself on while events keep coming.
     private func scheduleEdgeSnapStillCheck() {
-        edgeSnapStillCheckGeneration += 1
+        guard !edgeSnapStillCheckPending else { return }
+        edgeSnapStillCheckPending = true
+        armEdgeSnapStillCheck(after: WindowEdgeSnapPointerTrail.stillAfter)
+    }
+
+    private func armEdgeSnapStillCheck(after delay: TimeInterval) {
         let check = edgeSnapStillCheckGeneration
-        DispatchQueue.main.asyncAfter(deadline: .now() + WindowEdgeSnapPointerTrail.stillAfter) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             // Every cancel resets the trail, which moves this generation on too.
-            guard let self, check == self.edgeSnapStillCheckGeneration,
-                  let pointer = self.edgeSnapLastPointer else { return }
-            self.updateEdgeSnapDrag(at: pointer, forceSample: true, now: Self.uptimeSeconds)
+            guard let self, check == self.edgeSnapStillCheckGeneration else { return }
+            let now = Self.uptimeSeconds
+            let stillAfter = WindowEdgeSnapPointerTrail.stillAfter
+            if let last = self.edgeSnapTrail.lastTime, now - last < stillAfter {
+                // The pointer moved since this look was set, so it waits out
+                // the rest of the pause from the last event, and never longer
+                // than a whole pause for an event stamped ahead of the clock.
+                self.armEdgeSnapStillCheck(after: min(stillAfter - (now - last), stillAfter))
+                return
+            }
+            self.edgeSnapStillCheckPending = false
+            guard let pointer = self.edgeSnapLastPointer else { return }
+            self.updateEdgeSnapDrag(at: pointer, forceSample: true, now: now)
         }
     }
 
     private func resetEdgeSnapTrail() {
         edgeSnapTrail.reset()
         edgeSnapStillCheckGeneration += 1
+        edgeSnapStillCheckPending = false
     }
 
     private func edgeSnapQuartzScreenFrames() -> [CGRect] {

@@ -526,10 +526,22 @@ enum WindowLayoutFeatureTests {
                    at: seamPoint, screens: seamScreens,
                    velocity: CGVector(dx: WindowEdgeSnapSupport.crossingSpeed, dy: 0))?.action == .rightHalf,
                "a pointer slowed to the crossing speed counts as aiming")
-        suite.expect(snapTarget(CGPoint(x: 1440, y: 450), screens: [snapScreen])?.action == .rightHalf
-                && WindowEdgeSnapSupport.target(at: CGPoint(x: 1440, y: 450), screens: [snapScreen],
+        suite.expect(WindowEdgeSnapSupport.target(at: CGPoint(x: 1440, y: 450), screens: [snapScreen],
+                                                  velocity: CGVector(dx: fast, dy: 0))?.action == .rightHalf
+                && WindowEdgeSnapSupport.target(at: CGPoint(x: 0, y: 450), screens: seamScreens,
+                                                velocity: CGVector(dx: -fast, dy: 0))?.action == .leftHalf,
+               "an edge with no display beyond it snaps at any speed, so a window flung at it and let go still tiles")
+        let shortRightScreen = WindowEdgeSnapScreen(
+            frame: CGRect(x: 1440, y: 0, width: 1280, height: 600),
+            visibleFrame: CGRect(x: 1440, y: 0, width: 1280, height: 600)
+        )
+        suite.expect(WindowEdgeSnapSupport.target(at: CGPoint(x: 1440, y: 700),
+                                                  screens: [snapScreen, shortRightScreen],
+                                                  velocity: CGVector(dx: fast, dy: 0))?.action == .rightHalf
+                && WindowEdgeSnapSupport.target(at: CGPoint(x: 1435, y: 450),
+                                                screens: [snapScreen, shortRightScreen],
                                                 velocity: CGVector(dx: fast, dy: 0)) == nil,
-               "an outer edge follows the same rule: it tiles once the wall has slowed the pointer, not while it is still flying in")
+               "beside a shorter display, only the stretch of the edge it reaches waits for the pointer to slow")
         let upperSnapScreen = WindowEdgeSnapScreen(
             frame: CGRect(x: 0, y: 900, width: 1280, height: 800),
             visibleFrame: CGRect(x: 0, y: 900, width: 1280, height: 775)
@@ -544,6 +556,12 @@ enum WindowLayoutFeatureTests {
                                                   screens: [snapScreen, upperSnapScreen],
                                                   velocity: CGVector(dx: 0, dy: fast)) == nil,
                "a pointer passing up through a stacked seam at speed is not caught")
+        let menuBarPoint = CGPoint(x: 720, y: snapVisibleFrame.maxY)
+        suite.expect(WindowEdgeSnapSupport.target(at: menuBarPoint, screens: [snapScreen],
+                                                  velocity: CGVector(dx: 0, dy: fast))?.action == .maximize
+                && WindowEdgeSnapSupport.target(at: menuBarPoint, screens: [snapScreen, upperSnapScreen],
+                                                velocity: CGVector(dx: 0, dy: fast)) == nil,
+               "the menu bar maximizes at any speed with nothing above it, and waits for the pointer to slow below another display")
 
         var trail = WindowEdgeSnapPointerTrail()
         for step in 0...10 {
@@ -567,6 +585,13 @@ enum WindowLayoutFeatureTests {
         polled.append(CGPoint(x: 1, y: 0), at: 1.001)
         suite.expect(abs(polled.velocity(at: 1.001).dx) <= WindowEdgeSnapSupport.crossingSpeed,
                      "a mouse polling every millisecond does not turn a 1 pt step into a crossing")
+        var frozen = WindowEdgeSnapPointerTrail()
+        frozen.append(CGPoint(x: 1000, y: 0), at: 2)
+        for _ in 0..<WindowEdgeSnapPointerTrail.capacity {
+            frozen.append(.zero, at: 2)
+        }
+        suite.expect(frozen.velocity(at: 2) == .zero && frozen.lastTime == 2,
+                     "a trail whose events never move on in time keeps only its newest samples")
         suite.expect(WindowEdgeSnapSupport.systemTilingEnabled { _ in nil },
                "unwritten system tiling choices keep their enabled default")
         suite.expect(!WindowEdgeSnapSupport.systemTilingEnabled { _ in false },
