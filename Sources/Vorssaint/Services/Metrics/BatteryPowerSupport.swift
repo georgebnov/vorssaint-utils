@@ -38,16 +38,6 @@ enum BatteryPowerSupport {
     /// back to a level.
     static func menuBarSymbol(percent: Int, isCharging: Bool, externalConnected: Bool) -> String {
         if showsBolt(isCharging: isCharging, externalConnected: externalConnected) { return "battery.100.bolt" }
-        return levelSymbol(percent: percent)
-    }
-
-    static func showsBolt(isCharging: Bool, externalConnected: Bool) -> Bool {
-        isCharging || externalConnected
-    }
-
-    /// The glyph for the charge alone. The island draws the bolt over it, so a
-    /// Mac on its adapter still shows how full it is.
-    static func levelSymbol(percent: Int) -> String {
         switch percent {
         case 85...: return "battery.100"
         case 60..<85: return "battery.75"
@@ -55,5 +45,15 @@ enum BatteryPowerSupport {
         case 10..<35: return "battery.25"
         default: return "battery.0"
         }
+    }
+
+    static func showsBolt(isCharging: Bool, externalConnected: Bool) -> Bool {
+        isCharging || externalConnected
+    }
+
+    /// How much of the island's battery to fill: the charge itself, not one of
+    /// the menu bar glyph's five steps.
+    static func fillFraction(percent: Int) -> Double {
+        Double(min(max(percent, 0), 100)) / 100
     }
 }

@@ -770,47 +770,65 @@ enum NotchRestingBattery {
         }
     }
 
-    /// The icon empties with the charge, on the adapter too. The bolt is
-    /// drawn over it on its own, so it never hides the level.
-    static func symbol(for power: PowerReading) -> String {
-        BatteryPowerSupport.levelSymbol(percent: power.chargePercent ?? 100)
-    }
-
     static func showsBolt(for power: PowerReading) -> Bool {
         BatteryPowerSupport.showsBolt(isCharging: power.isCharging,
                                       externalConnected: power.externalConnected)
     }
 }
 
-/// The resting battery: the glyph for the charge, with a bolt cut into it
-/// that grows in when the adapter connects and shrinks away when it leaves.
+/// The resting battery: the outline, a fill as wide as the charge, and on
+/// the adapter Apple's charging bolt, which grows in when it connects and
+/// shrinks away when it leaves. SF Symbols has no glyph with a partial level
+/// and a bolt, so the fill and the bolt are drawn over `battery.0`.
 struct NotchBatteryIcon: View {
     let power: PowerReading
     let size: CGFloat
-    var weight: Font.Weight = .regular
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var bolt: Bool { NotchRestingBattery.showsBolt(for: power) }
 
     var body: some View {
-        Image(systemName: NotchRestingBattery.symbol(for: power))
-            .font(.system(size: size, weight: weight))
-            .overlay { boltLayer(size: size * 0.62, weight: .heavy).blendMode(.destinationOut) }
-            .overlay { boltLayer(size: size * 0.46, weight: .bold) }
+        Image(systemName: "battery.0").font(.system(size: size))
+            .overlay {
+                GeometryReader { proxy in
+                    let w = proxy.size.width, h = proxy.size.height
+                    // Where `battery.100` draws its fill inside the outline.
+                    let fill = 0.594 * w * BatteryPowerSupport.fillFraction(percent: power.chargePercent ?? 100)
+                    RoundedRectangle(cornerRadius: size * 0.08)
+                        .frame(width: fill, height: 0.482 * h)
+                        .position(x: 0.153 * w + fill / 2, y: h / 2)
+                    if bolt {
+                        // The bolt spans the outline's height, as in `battery.100.bolt`.
+                        let box = CGRect(x: 0.0706 * w, y: 0.086 * h, width: 0.847 * w, height: 0.815 * h)
+                        ZStack {
+                            // Apple clears 1 point around the bolt, through the fill and the outline.
+                            NotchBatteryBolt().stroke(style: StrokeStyle(lineWidth: size / 6, lineJoin: .round))
+                                .blendMode(.destinationOut)
+                            NotchBatteryBolt().stroke(style: StrokeStyle(lineWidth: size * 0.03, lineJoin: .round))
+                                .background(NotchBatteryBolt())
+                        }
+                        .frame(width: box.width, height: box.height)
+                        .position(x: box.midX, y: box.midY)
+                        .transition(.scale.combined(with: .opacity))
+                    }
+                }
+            }
             .compositingGroup()
             .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.6), value: bolt)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: power.chargePercent)
     }
+}
 
-    /// Two bolts in one place: the larger clears the fill around the smaller,
-    /// so the bolt reads against a full battery as well as an empty one.
-    @ViewBuilder
-    private func boltLayer(size: CGFloat, weight: Font.Weight) -> some View {
-        if bolt {
-            Image(systemName: "bolt.fill").font(.system(size: size, weight: weight))
-                // The glyph's body sits left of its centre, past the terminal.
-                .offset(x: -self.size * 0.07)
-                .transition(.scale.combined(with: .opacity))
-        }
+/// The bolt of `battery.100.bolt`, traced from the glyph, in the frame of the
+/// battery outline.
+struct NotchBatteryBolt: Shape {
+    func path(in rect: CGRect) -> Path {
+        let points: [CGPoint] = [CGPoint(x: 0.510, y: 0), CGPoint(x: 0.471, y: 0.417), CGPoint(x: 0.591, y: 0.417),
+                                 CGPoint(x: 0.389, y: 1), CGPoint(x: 0.433, y: 0.583), CGPoint(x: 0.308, y: 0.583)]
+        var path = Path()
+        path.addLines(points.map { CGPoint(x: rect.minX + $0.x * rect.width, y: rect.minY + $0.y * rect.height) })
+        path.closeSubpath()
+        return path
     }
 }
 
