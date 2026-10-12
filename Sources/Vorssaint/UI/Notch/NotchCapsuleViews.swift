@@ -216,7 +216,7 @@ struct NotchCapsuleRestingView: View {
                     let tint = NotchRestingBattery.tint(for: service.power, tint: lowBatteryTint,
                                                         threshold: lowBatteryThreshold, early: earlyBatteryWarning,
                                                         earlyThreshold: earlyBatteryThreshold)
-                    Image(systemName: symbol).font(.system(size: CapsuleLayout.symbolSize))
+                    NotchBatteryIcon(power: service.power, size: CapsuleLayout.symbolSize)
                         .capsuleCentred(symbol, weight: .regular)
                         .foregroundStyle(tint)
                     if let percent = service.power.chargePercent {

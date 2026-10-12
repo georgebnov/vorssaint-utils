@@ -349,6 +349,14 @@ enum MetricsFeatureTests {
                                                       externalConnected: false),
                     "battery.0",
                     "an unplugged Mac keeps the level thresholds it always had")
+        expectEqual(BatteryPowerSupport.levelSymbol(percent: 82), "battery.75",
+                    "the island keeps the level of a Mac charging at 82%")
+        suite.expect(BatteryPowerSupport.showsBolt(isCharging: true, externalConnected: true)
+                     && BatteryPowerSupport.showsBolt(isCharging: false, externalConnected: true)
+                     && BatteryPowerSupport.showsBolt(isCharging: true, externalConnected: false),
+                     "the island draws the bolt for a charge and for a charge held on the adapter")
+        suite.expect(!BatteryPowerSupport.showsBolt(isCharging: false, externalConnected: false),
+                     "an unplugged Mac never takes the bolt")
 
         suite.expect(BatteryPowerSupport.state(isCharging: false,
                                                externalConnected: true,

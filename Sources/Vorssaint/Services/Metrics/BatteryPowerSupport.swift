@@ -37,7 +37,17 @@ enum BatteryPowerSupport {
     /// has not reported yet still reads as external power rather than dropping
     /// back to a level.
     static func menuBarSymbol(percent: Int, isCharging: Bool, externalConnected: Bool) -> String {
-        if isCharging || externalConnected { return "battery.100.bolt" }
+        if showsBolt(isCharging: isCharging, externalConnected: externalConnected) { return "battery.100.bolt" }
+        return levelSymbol(percent: percent)
+    }
+
+    static func showsBolt(isCharging: Bool, externalConnected: Bool) -> Bool {
+        isCharging || externalConnected
+    }
+
+    /// The glyph for the charge alone. The island draws the bolt over it, so a
+    /// Mac on its adapter still shows how full it is.
+    static func levelSymbol(percent: Int) -> String {
         switch percent {
         case 85...: return "battery.100"
         case 60..<85: return "battery.75"

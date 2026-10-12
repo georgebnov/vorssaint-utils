@@ -770,11 +770,47 @@ enum NotchRestingBattery {
         }
     }
 
-    /// The icon empties with the charge, as the menu bar's does.
+    /// The icon empties with the charge, on the adapter too. The bolt is
+    /// drawn over it on its own, so it never hides the level.
     static func symbol(for power: PowerReading) -> String {
-        BatteryPowerSupport.menuBarSymbol(percent: power.chargePercent ?? 100,
-                                          isCharging: power.isCharging,
-                                          externalConnected: power.externalConnected)
+        BatteryPowerSupport.levelSymbol(percent: power.chargePercent ?? 100)
+    }
+
+    static func showsBolt(for power: PowerReading) -> Bool {
+        BatteryPowerSupport.showsBolt(isCharging: power.isCharging,
+                                      externalConnected: power.externalConnected)
+    }
+}
+
+/// The resting battery: the glyph for the charge, with a bolt cut into it
+/// that grows in when the adapter connects and shrinks away when it leaves.
+struct NotchBatteryIcon: View {
+    let power: PowerReading
+    let size: CGFloat
+    var weight: Font.Weight = .regular
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var bolt: Bool { NotchRestingBattery.showsBolt(for: power) }
+
+    var body: some View {
+        Image(systemName: NotchRestingBattery.symbol(for: power))
+            .font(.system(size: size, weight: weight))
+            .overlay { boltLayer(size: size * 0.62, weight: .heavy).blendMode(.destinationOut) }
+            .overlay { boltLayer(size: size * 0.46, weight: .bold) }
+            .compositingGroup()
+            .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.6), value: bolt)
+    }
+
+    /// Two bolts in one place: the larger clears the fill around the smaller,
+    /// so the bolt reads against a full battery as well as an empty one.
+    @ViewBuilder
+    private func boltLayer(size: CGFloat, weight: Font.Weight) -> some View {
+        if bolt {
+            Image(systemName: "bolt.fill").font(.system(size: size, weight: weight))
+                // The glyph's body sits left of its centre, past the terminal.
+                .offset(x: -self.size * 0.07)
+                .transition(.scale.combined(with: .opacity))
+        }
     }
 }
 
@@ -799,8 +835,6 @@ struct NotchRestingStrip: View {
         NotchRestingBattery.tint(for: service.power, tint: lowBatteryTint, threshold: lowBatteryThreshold,
                                  early: earlyBatteryWarning, earlyThreshold: earlyBatteryThreshold)
     }
-
-    private var batterySymbol: String { NotchRestingBattery.symbol(for: service.power) }
 
     /// Centre battery content inside the wing's visible area, past its curved shoulder.
     private var restingBatteryInset: CGFloat {
@@ -832,7 +866,7 @@ struct NotchRestingStrip: View {
                                     .clipShape(RoundedRectangle(cornerRadius: 5))
                             }
                         case .battery:
-                            Image(systemName: batterySymbol).font(.system(size: 12))
+                            NotchBatteryIcon(power: service.power, size: 12)
                                 .foregroundStyle(batteryTint)
                                 .padding(.leading, restingBatteryInset)
                         case .agents:
