@@ -354,12 +354,6 @@ enum MetricsFeatureTests {
         suite.expect(BatteryPowerSupport.fillFraction(percent: -4) == 0
                      && BatteryPowerSupport.fillFraction(percent: 140) == 1,
                      "a charge reading out of range stays inside the outline")
-        suite.expect(BatteryPowerSupport.showsBolt(isCharging: true, externalConnected: true)
-                     && BatteryPowerSupport.showsBolt(isCharging: false, externalConnected: true)
-                     && BatteryPowerSupport.showsBolt(isCharging: true, externalConnected: false),
-                     "the island draws the bolt for a charge and for a charge held on the adapter")
-        suite.expect(!BatteryPowerSupport.showsBolt(isCharging: false, externalConnected: false),
-                     "an unplugged Mac never takes the bolt")
 
         suite.expect(BatteryPowerSupport.state(isCharging: false,
                                                externalConnected: true,

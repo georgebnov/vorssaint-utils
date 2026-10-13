@@ -216,7 +216,7 @@ struct NotchCapsuleRestingView: View {
                                                         threshold: lowBatteryThreshold, early: earlyBatteryWarning,
                                                         earlyThreshold: earlyBatteryThreshold)
                     NotchBatteryIcon(power: service.power, size: CapsuleLayout.symbolSize)
-                        .capsuleCentred("battery.0", weight: .regular)
+                        .capsuleCentred(NotchBatteryIcon.baseSymbol, weight: .regular)
                         .foregroundStyle(tint)
                     if let percent = service.power.chargePercent {
                         Text("\(percent)%").font(Font(CapsuleLayout.smallFont as CTFont)).lineLimit(1)

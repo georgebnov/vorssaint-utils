@@ -28,14 +28,6 @@ enum BatteryPowerSupport {
         return hasBattery ? .onBattery : .unavailable
     }
 
-    /// The bolt belongs to external power, not to a charge in progress. A Mac
-    /// held at a charge limit, and a Mac sitting at full on its adapter, both
-    /// report `isCharging` false while still running off the adapter, so a
-    /// plain battery there is indistinguishable from an unplugged one.
-    ///
-    /// A charge in progress keeps the bolt on its own, so an adapter the system
-    /// has not reported yet still reads as external power rather than dropping
-    /// back to a level.
     static func menuBarSymbol(percent: Int, isCharging: Bool, externalConnected: Bool) -> String {
         if showsBolt(isCharging: isCharging, externalConnected: externalConnected) { return "battery.100.bolt" }
         switch percent {
@@ -47,6 +39,14 @@ enum BatteryPowerSupport {
         }
     }
 
+    /// The bolt belongs to external power, not to a charge in progress. A Mac
+    /// held at a charge limit, and a Mac sitting at full on its adapter, both
+    /// report `isCharging` false while still running off the adapter, so a
+    /// plain battery there is indistinguishable from an unplugged one.
+    ///
+    /// A charge in progress keeps the bolt on its own, so an adapter the system
+    /// has not reported yet still reads as external power rather than dropping
+    /// back to a level.
     static func showsBolt(isCharging: Bool, externalConnected: Bool) -> Bool {
         isCharging || externalConnected
     }

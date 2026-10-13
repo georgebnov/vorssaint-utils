@@ -769,31 +769,37 @@ enum NotchRestingBattery {
         case .none: return .white.opacity(0.9)
         }
     }
-
-    static func showsBolt(for power: PowerReading) -> Bool {
-        BatteryPowerSupport.showsBolt(isCharging: power.isCharging,
-                                      externalConnected: power.externalConnected)
-    }
 }
 
 /// The resting battery: the outline, a fill as wide as the charge, and on
 /// the adapter Apple's charging bolt, which grows in when it connects and
 /// shrinks away when it leaves. SF Symbols has no glyph with a partial level
-/// and a bolt, so the fill and the bolt are drawn over `battery.0`.
+/// and a bolt, so the fill and the bolt are drawn over the empty outline.
 struct NotchBatteryIcon: View {
-    let power: PowerReading
+    /// The outline the fill and the bolt are drawn over, also what the
+    /// capsule measures to centre the icon.
+    static let baseSymbol = "battery.0"
+
+    /// How much of the battery to fill, from 0 to 1.
+    let fraction: Double
+    let bolt: Bool
     let size: CGFloat
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var bolt: Bool { NotchRestingBattery.showsBolt(for: power) }
+    init(power: PowerReading, size: CGFloat) {
+        fraction = BatteryPowerSupport.fillFraction(percent: power.chargePercent ?? 100)
+        bolt = BatteryPowerSupport.showsBolt(isCharging: power.isCharging,
+                                             externalConnected: power.externalConnected)
+        self.size = size
+    }
 
     var body: some View {
-        Image(systemName: "battery.0").font(.system(size: size))
+        Image(systemName: Self.baseSymbol).font(.system(size: size))
             .overlay {
                 GeometryReader { proxy in
                     let w = proxy.size.width, h = proxy.size.height
                     // Where `battery.100` draws its fill inside the outline.
-                    let fill = 0.594 * w * BatteryPowerSupport.fillFraction(percent: power.chargePercent ?? 100)
+                    let fill = 0.594 * w * fraction
                     RoundedRectangle(cornerRadius: size * 0.08)
                         .frame(width: fill, height: 0.482 * h)
                         .position(x: 0.153 * w + fill / 2, y: h / 2)
@@ -809,13 +815,17 @@ struct NotchBatteryIcon: View {
                         }
                         .frame(width: box.width, height: box.height)
                         .position(x: box.midX, y: box.midY)
-                        .transition(.scale.combined(with: .opacity))
+                        // The spring stays on the bolt, so a reading that also
+                        // moves the charge does not bounce the fill.
+                        .transition(reduceMotion ? .identity : .scale.combined(with: .opacity)
+                            .animation(.spring(response: 0.35, dampingFraction: 0.6)))
                     }
                 }
             }
             .compositingGroup()
-            .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.6), value: bolt)
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: power.chargePercent)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: fraction)
+            // The percent beside it speaks for the charge; `battery.0` would read as empty.
+            .accessibilityHidden(true)
     }
 }
 
